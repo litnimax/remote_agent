@@ -1,0 +1,5 @@
+<odoo>
+    <record id="demo_remote_agent" model="remote_agent.agent">
+        <field name="agent_uid">test</field>
+    </record>
+</odoo>

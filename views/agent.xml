@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+
+        <record id='remote_agent_agent_action' model='ir.actions.act_window'>
+            <field name='name'>Remote Agents</field>
+            <field name='res_model'>remote_agent.agent</field>
+             <field name="view_mode">tree,form</field>
+        </record>
+
+        <menuitem id="remote_agent_top_menu" name='Agents'
+            groups="base.group_no_one"/>
+        <!-- TODO: web_icon="asterisk_calls,static/description/icon.png" -->
+            
+        <menuitem id="remote_agent_agent_menu" parent='remote_agent_top_menu'
+            name='Agents' action='remote_agent_agent_action'/>
+
+        <record id='remote_agent_agent_list' model='ir.ui.view'>
+            <field name='name'>remote_agent.agent.list</field>
+            <field name='model'>remote_agent.agent</field>
+            <field name='type'>tree</field>
+            <field name='arch' type='xml'>
+                <tree>
+                    <field name='agent_uid'/>
+                    <field name='state'/>
+                    <field name="bus_enabled"/>
+                    <field name="https_enabled"/>
+                </tree>
+            </field>
+        </record>
+
+        <record id='remote_agent_agent_form' model='ir.ui.view'>
+            <field name='name'>remote_agent.agent.form</field>
+            <field name='model'>remote_agent.agent</field>
+            <field name='type'>form</field>
+            <field name='arch' type='xml'>
+              <form>
+                  <header>
+                    <field name="state" widget="statusbar"/>
+                    <button type="object" name="ping_button"
+                                class="oe_read_only btn-primary"                                
+                                string="Ping Agent" icon="fa-eye"/>                    
+                  </header>
+                  <sheet>
+                    <div name="title" class="oe_title">
+                        <label for="agent_uid" class="oe_edit_only"/>
+                        <h1><field name="agent_uid"/></h1>
+                    </div>                    
+                    <group>
+                      <group>
+                        <field name='bus_enabled'/>
+                        <field name="bus_timeout"/>
+                        <field name='https_enabled'/>
+                        <field name='https_address'
+                               attrs="{'invisible': [('https_enabled', '=', False)]}"/>
+                        <field name='https_port'
+                               attrs="{'invisible': [('https_enabled', '=', False)]}"/>
+                        <field name='https_timeout'
+                               attrs="{'invisible': [('https_enabled', '=', False)]}"/>
+                      </group>
+                      <group>
+                        <field name='note'/>
+                      </group>
+                    </group>
+                  </sheet>
+              </form>
+            </field>
+        </record>
+
+        <record id='remote_agent_agent_search' model='ir.ui.view'>
+            <field name='name'>remote_agent.agent.search</field>
+            <field name='model'>remote_agent.agent</field>
+            <field name='type'>search</field>
+            <field name='arch' type='xml'>
+                <search>
+                    <field name='agent_uid'/>
+                    <filter name="bus_enabled" string="Bus enabled"
+                        domain="[('bus_enabled', '=', True)]"/>
+                    <filter name="https_enabled" string="HTTPS enabled"
+                        domain="[('https_enabled', '=', True)]"/>
+                    <separator/>
+                    <filter name="online" string="Online"
+                        domain="[('state', '=', 'online')]"/>
+                    <filter name="offline" string="Offline"
+                        domain="[('state', '=', 'offline')]"/>                    
+                </search>
+            </field>
+        </record>
+
+    </data>
+</odoo>

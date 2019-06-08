@@ -17,15 +17,18 @@ from gevent.pywsgi import WSGIServer
 logger = logging.getLogger('odoo_agent')
 
 
-class Agent(object):
+class GeventAgent(object):
     version = 1
+    message_handlres = {}  # External message handlers are register here
     odoo = None
     odoo_connected = Event()
     odoo_disconnected = Event()
     odoo_session = requests.Session()
     # Environment settings
     agent_uid = os.getenv('AGENT_UID') or str(uuid.getnode())
+    agent_channel = os.getenv('AGENT_CHANNEL', 'agent')
     agent_model = os.getenv('ODOO_AGENT_MODEL')
+
     debug = os.getenv('DEBUG')
     # Odoo settings
     odoo_host = os.getenv('ODOO_HOST', 'odoo')
@@ -35,7 +38,7 @@ class Agent(object):
     odoo_db = os.getenv('ODOO_DB', 'odoo')
     odoo_login = os.getenv('ODOO_LOGIN', 'agent')
     odoo_password = os.getenv('ODOO_PASSWORD', 'service')
-    odoo_scheme = os.getenv('ODOO_SCHEME', 'http'),
+    odoo_scheme = os.getenv('ODOO_SCHEME', 'http')
     odoo_polling_port = os.getenv('ODOO_POLLING_PORT', '8072')
     odoo_reconnect_timeout = float(os.getenv(
                                             'ODOO_RECONNECT_TIMEOUT', '1'))
@@ -44,24 +47,30 @@ class Agent(object):
     # Response timeout when Odoo communicates via bus with agent
     bus_call_timeout = float(os.getenv('ODOO_BUS_CALL_TIMEOUT', '5'))
     disable_odoo_bus_poll = os.getenv('DISABLE_ODOO_BUS_POLL')
+    bus_enabled = disable_odoo_bus_poll != '1'
+    https_enabled = disable_odoo_bus_poll == '1'
     odoo_verify_cert = bool(int(os.getenv('ODOO_VERIFY_CERT', '0')))
     # HTTPS communication settings when bus is not enabled
     https_port = int(os.getenv('AGENT_PORT', '40000'))
     https_address = os.getenv('AGENT_ADDRESS', 'agent')
     https_timeout = os.getenv('AGENT_TIMEOUT', '5')
     https_verify_cert = bool(int(os.getenv('VERIFY_CERT', '0')))
-    https_key_file = os.getenv('AGENT_KEY_FILE', 'agent.key')
-    https_cert_file = os.getenv('AGENT_CERT_FILE', 'agent.crt')
-
+    https_key_file = os.getenv(
+        'AGENT_KEY_FILE',
+        os.path.join(os.path.dirname(os.path.realpath(__file__)), 'agent.key'))
+    https_cert_file = os.getenv(
+        'AGENT_CERT_FILE',
+        os.path.join(os.path.dirname(os.path.realpath(__file__)), 'agent.crt'))
     # Secure token known only to Odoo
     token = None
     # Builtin HTTPS server to accept messages
     wsgi_server = None
 
-    def __init__(self, agent_model=None, message_target=None):
-        self.message_target = message_target
+    def __init__(self, agent_model=None, agent_channel=None):
         if agent_model:
             self.agent_model = agent_model
+        if agent_channel:
+            self.agent_channel = agent_channel
         if not self.agent_model:
             raise Exception('Odoo agent model not set!')
         if self.debug == '1':
@@ -72,15 +81,14 @@ class Agent(object):
         # Init event with disconnected state
         self.odoo_disconnected.set()
         # Init WEB server
-        if self.disable_odoo_bus_poll == '1':
-            try:
-                self.wsgi_server = WSGIServer(
-                                          ('', self.https_port),
-                                          self.wsgi_application,
-                                          keyfile=self.https_key_file,
-                                          certfile=self.https_cert_file)
-            except (IOError, OSError) as e:
-                logger.error('HTTPS server init error: %s', e)
+        if self.https_enabled:
+            logger.debug('Loading HTTPS key from %s', self.https_key_file)
+            logger.debug('Loading HTTPS cert from %s', self.https_cert_file)
+            self.wsgi_server = WSGIServer(
+                                      ('', self.https_port),
+                                      self.wsgi_application,
+                                      keyfile=self.https_key_file,
+                                      certfile=self.https_cert_file)
         # Hack for slef-signed certificates.
         if not self.odoo_verify_cert:
             # Monkey patch SSL for self signed certificates
@@ -97,7 +105,7 @@ class Agent(object):
         hlist = []
         hlist.append(gevent.spawn(self.connect))
         hlist.append(gevent.spawn(self.odoo_bus_poll))
-        if self.disable_odoo_bus_poll == '1':
+        if self.https_enabled:
             logger.info('Starting Agent WEB server at port %s', self.https_port)
             hlist.append(gevent.spawn(self.wsgi_server.serve_forever))
         return hlist
@@ -119,11 +127,21 @@ class Agent(object):
             self.wsgi_server.stop()
 
 
+    def register_message(self, message, method):
+        if not self.message_handlres.get('message'):
+            logger.debug('Registering message handler for %s', message)
+            self.message_handlres[message] = method
+        else:
+            logger.warning('Overriding message handler for %s', message)
+            self.message_handlres[message] = method
+
+
     def connect(self):
         self.token = uuid.uuid4().hex
         while True:
             try:
-                logger.info('Connecting to Odoo at %s://%s:%s',
+                logger.info(
+                        'Connecting to Odoo at %s://%s:%s',
                         self.odoo_protocol, self.odoo_host, self.odoo_port)
                 odoo = odoorpc.ODOO(self.odoo_host, port=self.odoo_port,
                                     protocol=self.odoo_protocol)
@@ -132,16 +150,13 @@ class Agent(object):
                 self.odoo = odoo
                 self.odoo_connected.set()
                 self.odoo_disconnected.clear()
-                if self.disable_odoo_bus_poll == '1':
-                    self.set_https_options()
-                else:
-                    self.set_bus_options()
-                # Send 1-st message that will be omitted
-                self.odoo.env[self.agent_model].notify(
+                self.update_settings()
+                if self.bus_enabled:
+                    # Send 1-st message that will be omitted
+                    self.odoo.env[self.agent_model].notify(
                                             self.agent_uid,
                                             json.dumps({'Message': 'ping'}))
                 self.odoo_disconnected.wait()
-
             except RPCError as e:
                 if 'res.users()' in str(e):
                     logger.error(
@@ -149,7 +164,7 @@ class Agent(object):
                             'check in Odoo!',
                             self.odoo_login, self.odoo_password)
                 else:
-                    logger.exception(e)
+                    logger.exception('RPC error:')
                 self.odoo_connected.clear()
                 self.odoo_disconnected.set()
             except URLError as e:
@@ -167,23 +182,19 @@ class Agent(object):
             gevent.sleep(self.odoo_reconnect_timeout)
 
 
-    def set_bus_options(self):
-        # Generate a bus channel token and send it to Odoo
-        self.odoo.env[self.agent_model].set_bus_options(self.agent_uid, {
-                                    'token': self.token,
-                                    'bus_timeout': self.bus_call_timeout})
-
-
-    def set_https_options(self):
+    def update_settings(self):
         # Set Agent HTTP communication options
-        options = {
+        settings = {
             'token': self.token,
+            'bus_timeout': self.bus_call_timeout,
+            'bus_enabled': self.bus_enabled,
+            'https_enabled': self.https_enabled,
             'https_address': self.https_address,
             'https_port': self.https_port,
             'https_timeout': self.https_timeout,
         }
         self.odoo.env[
-            self.agent_model].set_http_options(self.agent_uid, options)
+            self.agent_model].update_settings(self.agent_uid, settings)
 
 
     def select_db(self):
@@ -219,7 +230,7 @@ class Agent(object):
 
 
     def odoo_bus_poll(self):
-        if self.disable_odoo_bus_poll == '1':
+        if not self.bus_enabled:
             logger.info('Odoo bus poll is disabled')
             return
         self.odoo_connected.wait()
@@ -240,7 +251,8 @@ class Agent(object):
                             json={
                                 'params': {
                                     'last': last,
-                                    'channels': ['asterisk_agent/{}'.format(
+                                    'channels': ['{}/{}'.format(
+                                                        self.agent_channel,
                                                         self.agent_uid)]
                                 }})
                 result = r.json().get('result')
@@ -321,14 +333,14 @@ class Agent(object):
             logger.warning('Channel %s token mismatch, ignore message: %s',
                            channel, msg)
             return
-        self.last_message_datetime = datetime.now()
         name = msg.pop('Message')
         logger.debug(u'Message {}'.format(name))
         if hasattr(self, 'on_message_{}'.format(name)):
             getattr(self, 'on_message_{}'.format(name))(channel, msg)
-        elif hasattr(self.message_target, 'on_message_{}'.format(name)):
-            getattr(self.message_target,
-                    'on_message_{}'.format(name))(channel, msg)
+        # Get message handler from external classes
+        elif self.message_handlres.get(name):
+            logger.debug('Found message handler for %s', name)
+            self.message_handlres[name](channel, msg)
         else:
             logger.error('Message handler not found for {}'.format(name))
 
@@ -349,7 +361,7 @@ class Agent(object):
             notify_type = 'notify_info_{}'.format(uid)
         else:
             notify_type = 'notify_warning_{}'.format(uid)
-        self.odoo.env['asterisk_calls.util'].asterisk_send_bus(
+        self.odoo.env[self.agent_model].bus_sendone(
                                      notify_type,
                                      {'message': msg.get('Message', ''),
                                       'title': msg.get('Response', '')})
@@ -359,5 +371,5 @@ if __name__ == '__main__':
     logging.basicConfig(
                 level=logging.INFO,
                 format='%(asctime)s - %(levelname)s - %(name)s - %(message)s')
-    a = Agent()
+    a = GeventAgent()
     a.start()

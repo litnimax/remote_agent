@@ -1,0 +1,4 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_remote_agent_admin,access_remote_agent_admin,model_remote_agent_agent,group_agent_user,1,1,1,1
+access_remote_agent_agent,access_remote_agent_agent,model_remote_agent_agent,group_agent_agent,1,1,1,1
+access_remote_agent_user,access_remote_agent_user,model_remote_agent_agent,group_agent_user,1,0,0,0

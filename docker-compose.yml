@@ -1,0 +1,60 @@
+# ************************************************************************************************
+# KEEP THIS FILE UNCHANGED FOR SMOOTH UPGRADE. USE docker-compose.override.yml FOR YOUR CUSTOM ENV
+# ************************************************************************************************
+
+version: '3'
+
+services:
+
+  db:
+    image: postgres:10
+    environment:
+      - POSTGRES_PASSWORD=odoo
+      - POSTGRES_USER=odoo
+      - PGDATA=/var/lib/postgresql/data/pgdata
+    restart: unless-stopped
+    volumes:
+      - db-data:/var/lib/postgresql/data/pgdata
+
+  odoo:
+    image: odoo:12.0
+    depends_on:
+      - db
+    restart: unless-stopped
+    # ****************** copy if needed to docker-compose.override.yml ************
+    #ports:
+    #  - "127.0.0.1:8069:8069"
+    #  - "127.0.0.1:8072:8072"
+    volumes:
+      - odoo-data:/var/lib/odoo
+    # Remove -i web_notify,remote_agent after first run otheriwise initial setting will be overwritten.
+    command: ["odoo", "-i", "web_notify,remote_agent"]
+
+
+  agent:
+    build: agent/
+    restart: unless-stopped    
+    environment:
+      - DEBUG=0
+      # Uncomment to enable Agent HTTPS communication interface instead of Odoo bus.
+      #- DISABLE_ODOO_BUS_POLL=1
+      #- AGENT_ADDRESS=agent
+      #- AGENT_PORT=40000
+      #- AGENT_TIMEOUT=5
+      - ODOO_SCHEME=http
+      - ODOO_HOST=odoo
+      - ODOO_PORT=8069
+      - ODOO_POLLING_PORT=8072
+      - ODOO_DB=test
+      - ODOO_LOGIN=remote_agent
+      - ODOO_PASSWORD=test
+      - VERIFY_CERT=0 # Set to 1 if u use nginx with https and a public certificate.
+      - ODOO_RECONNECT_TIMEOUT=1 # Reconnect      
+    # Override in docker-compose.override.yml if you enabled agent's HTTPS communication channel.
+    #ports:
+    #  - 40000:40000
+
+volumes:
+  odoo-data:
+  db-data:
+

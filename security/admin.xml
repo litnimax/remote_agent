@@ -1,0 +1,8 @@
+<odoo>
+    <record model="res.groups" id="group_agent_admin">
+        <field name="name">Admin</field>
+        <field name="category_id" ref="module_remote_agent_category"/>
+        <field name="users" eval="[(4, ref('base.user_admin'))]"/>        
+    </record>
+
+</odoo>
