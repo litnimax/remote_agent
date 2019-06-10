@@ -5,18 +5,17 @@
     'author': 'Odooist',
     'maintainer': 'Odooist',
     'support': 'odooist@gmail.com',
-    #'license': 'LGPL-1', TODO:
     'category': 'Hidden',
     'summary': 'Connect from Odoo to remote agents',
     'description': "",
     'depends': ['bus'],
     'data': [
         'security/common.xml',
-        'security/agent.xml',
         'security/user.xml',
-        'security/ir.model.access.csv',
-        'security/rules.xml',
+        'security/agent.xml',
+        'security/admin.xml',
         'views/agent.xml',
+        'views/agent_state.xml',
         'views/ir_cron.xml',
         ],
     'demo': [

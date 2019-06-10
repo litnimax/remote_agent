@@ -1,6 +1,6 @@
 <odoo>
     <record model="ir.module.category" id="module_remote_agent_category">
         <field name="name">Remote Agent</field>
-        <field name="description">Remote Agent Access Rights</field>
+        <field name="description">Remote Agent Access Rights</field>        
     </record>
 </odoo>

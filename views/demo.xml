@@ -1,5 +1,7 @@
 <odoo>
     <record id="demo_remote_agent" model="remote_agent.agent">
         <field name="agent_uid">test</field>
+        <field name="login">test_agent</field>
+        <field name="password">test</field>
     </record>
 </odoo>

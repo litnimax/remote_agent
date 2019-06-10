@@ -1,7 +1,42 @@
 <odoo>
     <record model="res.groups" id="group_agent_agent">
         <field name="name">Agent</field>
-        <field name="category_id" ref="module_remote_agent_category"/>
+        <field name="category_id" ref="module_remote_agent_category"/>        
+    </record>
+
+    <!-- Model rules -->
+
+    <record id="access_remote_agent_agent" model="ir.model.access">
+        <field name="name">access_remote_agent_agent</field>
+        <field name="model_id" ref="remote_agent.model_remote_agent_agent"/>
+        <field name="group_id" ref="remote_agent.group_agent_agent"/>
+        <field name="perm_read" eval="1"/>
+        <field name="perm_create" eval="1"/>
+        <field name="perm_write" eval="1"/>
+        <field name="perm_unlink" eval="0"/>
+    </record>
+
+    <record id="access_remote_agent_state_agent" model="ir.model.access">
+        <field name="name">access_remote_agent_state_agent</field>
+        <field name="model_id" ref="remote_agent.model_remote_agent_agent_state"/>
+        <field name="group_id" ref="remote_agent.group_agent_agent"/>
+        <field name="perm_read" eval="1"/>
+        <field name="perm_create" eval="1"/>
+        <field name="perm_write" eval="1"/>
+        <field name="perm_unlink" eval="0"/>
+    </record>
+
+    <!-- Records rules -->
+    
+    <record model="ir.rule" id="agent_own_rule">
+        <field name="name">Agent own rule</field>
+        <field name="model_id" ref="remote_agent.model_remote_agent_agent"/>
+        <field name="groups" eval="[(6,0,[ref('group_agent_agent')])]"/>
+        <field name="domain_force">[('user','=', user.id)]</field>
+        <field name="perm_create" eval="1"/>
+        <field name="perm_read" eval="1"/>
+        <field name="perm_write" eval="1"/>
+        <field name="perm_unlink" eval="1"/>
     </record>
 
 </odoo>

@@ -5,7 +5,14 @@
         <record id='remote_agent_agent_action' model='ir.actions.act_window'>
             <field name='name'>Remote Agents</field>
             <field name='res_model'>remote_agent.agent</field>
-             <field name="view_mode">tree,form</field>
+            <field name="view_mode">tree,form</field>
+        </record>
+
+        <record id='remote_agent_states_action' model='ir.actions.act_window'>
+            <field name='name'>Agent States</field>
+            <field name='res_model'>remote_agent.agent_state</field>
+            <field name="view_mode">tree,graph</field>
+            <field name="domain">[('agent', '=', context.get('agent_id'))]</field>
         </record>
 
         <menuitem id="remote_agent_top_menu" name='Agents'
@@ -20,11 +27,16 @@
             <field name='model'>remote_agent.agent</field>
             <field name='type'>tree</field>
             <field name='arch' type='xml'>
-                <tree>
-                    <field name='agent_uid'/>
-                    <field name='state'/>
+                <tree decoration-danger="alarm != False">
+                    <field name="alarm" invisible="1"/>
+                    <field name="state_icon" widget="html" string="S"/>
+                    <field name="agent_uid"/>
+                    <field name="last_state_name"/>
+                    <field name="last_state_human"/>
+                    <field name="last_online_human"/>
                     <field name="bus_enabled"/>
                     <field name="https_enabled"/>
+                    <field name="agent_version"/>
                 </tree>
             </field>
         </record>
@@ -35,32 +47,81 @@
             <field name='type'>form</field>
             <field name='arch' type='xml'>
               <form>
-                  <header>
-                    <field name="state" widget="statusbar"/>
+                  <header>                    
                     <button type="object" name="ping_button"
-                                class="oe_read_only btn-primary"                                
-                                string="Ping Agent" icon="fa-eye"/>                    
+                                class="oe_read_only btn-primary"
+                                string="Ping Agent" icon="fa-eye"/>
+                    <button type="object" name="refresh_view_button"
+                                class="oe_read_only"
+                                string="Refresh" icon="fa-refresh"/>
+                    <button type="object" name="restart_agent"
+                                class="oe_read_only btn-warning"
+                                string="Restart" icon="fa-plug"/>
+                    <button type="object" name="clear_alarm_button"
+                                class="oe_read_only btn-danger"
+                                attrs="{'invisible': [('alarm', '=', False)]}"
+                                string="Clear Alarm" icon="fa-check"/>
+                    <field name="last_state_name" widget="statusbar"/>
                   </header>
                   <sheet>
+                    <div class="oe_button_box oe_read_only">
+                        <button class="oe_stat_button" icon="fa-chain"
+                            type="action" name="%(remote_agent_states_action)d"
+                            context="{'agent_id': id, 'hide_agent': True}">
+                                <field name="state_count" string="States"
+                                    widget="statinfo"/>
+                        </button>
+                    </div>
+                    <div class="oe_read_only badge-pill badge-danger float-right"
+                         attrs="{'invisible': [('alarm', '=', False)]}">
+                            <field name="alarm"/>
+                    </div>                    
                     <div name="title" class="oe_title">
                         <label for="agent_uid" class="oe_edit_only"/>
                         <h1><field name="agent_uid"/></h1>
-                    </div>                    
+                        <label for="note" class="oe_edit_only"/>
+                        <field name='note'/>
+                    </div>
                     <group>
                       <group>
-                        <field name='bus_enabled'/>
-                        <field name="bus_timeout"/>
+                        <field name='bus_enabled'/>                        
+                        <field name="bus_timeout"
+                                attrs="{'invisible': [('bus_enabled', '=', False)],
+                                        'required': [('bus_enabled', '=', True)]}"/>
                         <field name='https_enabled'/>
-                        <field name='https_address'
-                               attrs="{'invisible': [('https_enabled', '=', False)]}"/>
+                        <field name='https_address'                                
+                               attrs="{'invisible': [('https_enabled', '=', False)],
+                                       'required': [('https_enabled', '=', True)]}"/>
                         <field name='https_port'
-                               attrs="{'invisible': [('https_enabled', '=', False)]}"/>
+                               attrs="{'invisible': [('https_enabled', '=', False)],
+                                       'required': [('https_enabled', '=', True)]}"/>
                         <field name='https_timeout'
-                               attrs="{'invisible': [('https_enabled', '=', False)]}"/>
+                               attrs="{'invisible': [('https_enabled', '=', False)],
+                                       'required': [('https_enabled', '=', True)]}"/>                                        
                       </group>
                       <group>
-                        <field name='note'/>
+                        <label for="user" class="oe_read_only"/>
+                        <field name="user" class="oe_read_only" nolabel="1"/>
+                        <field name="login"/>
+                        <field name="password"/>
                       </group>
+                    </group>
+                    <group string="Statistics" class="oe_read_only">
+                        <group>                            
+                            <field name="last_state"/>
+                        </group>
+                        <group>                            
+                            <field name="last_online"/>
+                        </group>
+                    </group>
+                    <group class="oe_read_only">
+                            <field name="states" nolabel="1">
+                                <tree limit="10">                                
+                                    <field name="state"/>
+                                    <field name="note"/>
+                                    <field name="create_date" string="Created"/>
+                                </tree>
+                            </field>
                     </group>
                   </sheet>
               </form>

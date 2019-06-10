@@ -1,4 +1,5 @@
-from datetime import datetime
+# -*- coding: utf-8 -*-
+import argparse
 import gevent
 from gevent.monkey import  patch_all; patch_all()
 from gevent.pool import Event
@@ -7,6 +8,7 @@ import logging
 import odoorpc
 from odoorpc.error import RPCError
 import os
+import random
 import requests
 import sys
 from urllib2 import URLError
@@ -14,11 +16,11 @@ import uuid
 from gevent.pywsgi import WSGIServer
 
 
-logger = logging.getLogger('odoo_agent')
+logger = logging.getLogger('remote_agent')
 
 
 class GeventAgent(object):
-    version = 1
+    version = '1.0-gevent'
     message_handlres = {}  # External message handlers are register here
     odoo = None
     odoo_connected = Event()
@@ -26,8 +28,8 @@ class GeventAgent(object):
     odoo_session = requests.Session()
     # Environment settings
     agent_uid = os.getenv('AGENT_UID') or str(uuid.getnode())
-    agent_channel = os.getenv('AGENT_CHANNEL', 'agent')
-    agent_model = os.getenv('ODOO_AGENT_MODEL')
+    agent_channel = os.getenv('AGENT_CHANNEL', 'remote_agent')
+    agent_model = os.getenv('ODOO_AGENT_MODEL', 'remote_agent.agent')
 
     debug = os.getenv('DEBUG')
     # Odoo settings
@@ -45,7 +47,7 @@ class GeventAgent(object):
     # Poll timeout when when agents calls /longpolling/poll
     odoo_bus_timeout = float(os.getenv('ODOO_BUS_TIMEOUT', '55'))
     # Response timeout when Odoo communicates via bus with agent
-    bus_call_timeout = float(os.getenv('ODOO_BUS_CALL_TIMEOUT', '5'))
+    bus_call_timeout = int(os.getenv('ODOO_BUS_CALL_TIMEOUT', '-1'))
     disable_odoo_bus_poll = os.getenv('DISABLE_ODOO_BUS_POLL')
     bus_enabled = disable_odoo_bus_poll != '1'
     https_enabled = disable_odoo_bus_poll == '1'
@@ -53,7 +55,7 @@ class GeventAgent(object):
     # HTTPS communication settings when bus is not enabled
     https_port = int(os.getenv('AGENT_PORT', '40000'))
     https_address = os.getenv('AGENT_ADDRESS', 'agent')
-    https_timeout = os.getenv('AGENT_TIMEOUT', '5')
+    https_timeout = int(os.getenv('AGENT_TIMEOUT', '-1'))
     https_verify_cert = bool(int(os.getenv('VERIFY_CERT', '0')))
     https_key_file = os.getenv(
         'AGENT_KEY_FILE',
@@ -114,11 +116,30 @@ class GeventAgent(object):
     def start(self):
         try:
             hlist = self.spawn()
+            gevent.spawn(self.on_start)
             gevent.joinall(hlist)
         except (KeyboardInterrupt, SystemExit):
             self.stop()
             logger.info('Odoo Agent exit')
             sys.exit(0)
+
+
+    def on_start(self):
+        # Parse args
+        parser = argparse.ArgumentParser(description='Remote Agent')
+        parser.add_argument('--notify_uid', type=int,
+                            help='Odoo UID to notify on agent start')
+        parser.add_argument('--alarm',
+                            help='Alarm message to set on start')
+        args = parser.parse_args()
+        if args.notify_uid:
+            self.odoo_connected.wait()
+            self.notify_user(args.notify_uid, 'Agent has been started!')
+        if args.alarm != None:
+            if args.alarm:
+                self.set_alarm(args.alarm)
+            else:
+                self.clear_alarm()
 
 
     def stop(self):
@@ -151,11 +172,15 @@ class GeventAgent(object):
                 self.odoo_connected.set()
                 self.odoo_disconnected.clear()
                 self.update_settings()
+                # Create a new online state
+                self.update_state(force_create=True, note='Agent started')
                 if self.bus_enabled:
                     # Send 1-st message that will be omitted
-                    self.odoo.env[self.agent_model].notify(
+                    self.odoo.env[self.agent_model].notify_agent(
                                             self.agent_uid,
-                                            json.dumps({'Message': 'ping'}))
+                                            json.dumps({
+                                                'message': 'ping',
+                                                'random_sleep': '1'}))
                 self.odoo_disconnected.wait()
             except RPCError as e:
                 if 'res.users()' in str(e):
@@ -186,15 +211,39 @@ class GeventAgent(object):
         # Set Agent HTTP communication options
         settings = {
             'token': self.token,
-            'bus_timeout': self.bus_call_timeout,
             'bus_enabled': self.bus_enabled,
             'https_enabled': self.https_enabled,
             'https_address': self.https_address,
             'https_port': self.https_port,
-            'https_timeout': self.https_timeout,
+            'agent_version': self.version,
         }
+        if self.bus_call_timeout != -1:
+            settings.update({'bus_timeout': self.bus_call_timeout})
+        if self.https_timeout != -1:
+            settings.update({'https_timeout': self.https_timeout})
         self.odoo.env[
             self.agent_model].update_settings(self.agent_uid, settings)
+
+
+    def update_state(self, force_create=False, note=False):
+        self.odoo_connected.wait()
+        self.odoo.env[
+            self.agent_model].update_state(self.agent_uid, state='online',
+                                           force_create=force_create,
+                                           note=note)
+
+    def set_alarm(self, message):
+        logger.debug('Set alarm: %s', message)
+        self.odoo_connected.wait()
+        self.odoo.env[
+            self.agent_model].set_alarm(self.agent_uid, message)
+
+
+    def clear_alarm(self, message=None):
+        logger.debug('Clear alarm: %s', message or '')
+        self.odoo_connected.wait()
+        self.odoo.env[
+            self.agent_model].clear_alarm(self.agent_uid, message)
 
 
     def select_db(self):
@@ -251,10 +300,10 @@ class GeventAgent(object):
                             json={
                                 'params': {
                                     'last': last,
-                                    'channels': ['{}/{}'.format(
+                                    'channels': [
+                                        '{}/{}'.format(
                                                         self.agent_channel,
-                                                        self.agent_uid)]
-                                }})
+                                                        self.agent_uid)]}})
                 result = r.json().get('result')
                 if not result:
                     error = r.json().get('error')
@@ -269,7 +318,11 @@ class GeventAgent(object):
                             message = json.loads(msg['message'])
                         else:
                             message = msg['message']
-                        logger.debug('Ommit bus message %s', message['Message'])
+                        if not message.get('message'):
+                            logger.error('No Message attribute in message: %s',
+                                         message)
+                            continue
+                        logger.debug('Ommit bus message %s', message['message'])
                         last = msg['id']
                     continue
 
@@ -279,7 +332,11 @@ class GeventAgent(object):
                         message = json.loads(msg['message'])
                     else:
                         message = msg['message']
-                    logger.debug('Handle bus message %s', message['Message'])
+                    if not message.get('message'):
+                        logger.error('No Message attribute in message: %s',
+                                     message)
+                        continue
+                    logger.debug('Handle bus message %s', message['message'])
                     gevent.spawn(self.handle_message,
                                  msg['channel'], msg['message'])
 
@@ -333,7 +390,7 @@ class GeventAgent(object):
             logger.warning('Channel %s token mismatch, ignore message: %s',
                            channel, msg)
             return
-        name = msg.pop('Message')
+        name = msg.pop('message')
         logger.debug(u'Message {}'.format(name))
         if hasattr(self, 'on_message_{}'.format(name)):
             getattr(self, 'on_message_{}'.format(name))(channel, msg)
@@ -346,25 +403,45 @@ class GeventAgent(object):
 
 
     def on_message_ping(self, channel, msg):
-        logger.debug(u'Ping received')
+        if msg.get('reply_channel'):
+            self.odoo.env[self.agent_model].bus_sendone(
+                                    msg['reply_channel'], {'state': 'online'})
+            logger.debug(u'Ping replied')
+        else:
+            random_sleep = int(msg.get('random_sleep', '0'))
+            sleep_time = random_sleep * random.random()
+            logger.debug(u'State update on ping after %0.2f sec', sleep_time)
+            gevent.sleep(sleep_time)
+            self.update_state(note='Ping update')
 
 
-    def notify_user(self, uid, msg, title=None):
+    def on_message_restart(self, channel, msg):
+        logger.info('Restarting')
+        if msg.get('reply_channel'):
+            self.odoo.env[self.agent_model].bus_sendone(msg['reply_channel'], {
+                                                   'status': 'restarting'})
+        self.stop()
+        args = sys.argv[:]
+        if msg.get('notify_uid'):
+            logger.debug('Will notify uid %s after restart', msg['notify_uid'])
+            args.append('--notify_uid={}'.format(msg['notify_uid']))
+        os.execv(sys.executable, ['python2.7'] + args)
+
+
+    def notify_user(self, uid, message, title='Agent', warning=False):
         self.odoo_connected.wait()
         if not uid:
             logger.debug(u'No uid, will not notify')
             return
-        if title:
-            msg['Response'] = title
-        logger.debug(u'Notify user: {}'.format(json.dumps(msg, indent=2)))
-        if msg.get('Success'):
+        logger.debug('Notify user %s: %s', uid, message)
+        if not warning:
             notify_type = 'notify_info_{}'.format(uid)
         else:
             notify_type = 'notify_warning_{}'.format(uid)
         self.odoo.env[self.agent_model].bus_sendone(
                                      notify_type,
-                                     {'message': msg.get('Message', ''),
-                                      'title': msg.get('Response', '')})
+                                     {'message': message,
+                                      'title': title})
 
 
 if __name__ == '__main__':

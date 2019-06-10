@@ -2,7 +2,7 @@ FROM alpine:3.8
 
 WORKDIR /app
 
-RUN apk add --no-cache python2 py2-gevent py2-pip tini
+RUN apk add --no-cache python2 py2-gevent py2-pip py2-requests tini
 
 COPY requirements.txt /app/
 RUN pip install -r requirements.txt

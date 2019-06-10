@@ -1,36 +1,38 @@
-===============================================
- Asterisk Calls Odoo Application documentation
-===============================================
+===========================================
+ Odoo Remote Agent communication framework
+===========================================
 
 .. contents::
    :depth: 4
+
+Concept
+-------
+Existing Odoo clients can only call Odoo methods. This solutions uses *odoorpc* library for this.
+
+This solution also gives the ability to call from Odoo remote client using 2 ways of communication:
+
+* Odoo bus polling
+* HTTPS
+
+Features
+########
+
+* Odoo connection watcher (auto re-connect after disconnect).
+* Query pool (queries are not lost during Odoo disconnects).
+* Two alternative communication channels: bus and https.
 
 
 Installation
 ------------
 To get this working You need:
 
-* **Install Odoo module** and do some Odoo users <-> Asterisk extensions configuration.
-* **Do some Asterisk configuration** - add getting caller name from Odoo and more.
-* **Run Odoo Asterisk agent** - a script that connects to Asterisk Manager
-  Interface (AMI) and listens for events / sends actions. Agent can be run
-  from any place: Odoo server, Asterisk server or just a docker service.
+* Install Odoo module
+* Run agent
 
-Here is the architecture of the solution:
-
-.. image:: img/asterisk_calls_dia.png
-   :width: 800px
 
 Docker compose deploy
 #####################
-There is a deploy folder in the application package that contains docker-compose style installation.
-The deploy folder contains 3 directories:
-
-- **agent** (a middleware between Odoo and Asterisk, you already have 
-  Odoo and Asterisk you may want to run only a docker based Agent installation).
-- **odoo** (installation of Odoo and PostgreSQL, if you already have  
-  Asterisk running then you may want to run docker based Odoo and Agent.
-- **asterisk** (If you want a complete all-in-one suite run all components).
-
 To customize your installation use ``docker-compose.override.yml`` to set your custom values.
+
+
 
