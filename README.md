@@ -1,3 +1,3 @@
 # Remote Agent - Odoo communication framework
 
-Here is an ideas and support hub of *remote_agent* project.
+See [Wiki](https://github.com/litnimax/remote_agent/wiki) for documentation.
