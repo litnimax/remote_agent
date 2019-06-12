@@ -8,6 +8,9 @@
     'category': 'Hidden',
     'summary': 'Connect from Odoo to remote agents',
     'description': "",
+    'external_dependencies': {
+        'python': ['tinyrpc'],
+    },
     'depends': ['bus'],
     'data': [
         'security/common.xml',

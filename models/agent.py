@@ -12,20 +12,68 @@ import requests
 import string
 import time
 import urllib3
-# Default installation has self signed certificates
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 import uuid
 
 from odoo import models, fields, api, registry, _
 from odoo.exceptions import ValidationError
 from odoo.addons.bus.models.bus import dispatch
 
+from tinyrpc import RPCClient
+from tinyrpc.protocols.jsonrpc import JSONRPCProtocol
+from tinyrpc.transports import ClientTransport
+
 from .agent_state import STATES
+
+# Default installation has self signed certificates
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 logger = logging.getLogger(__name__)
 
 
 DEFAULT_PASSWORD_LENGTH = os.getenv('AGENT_DEFAULT_PASSWORD_LENGTH', '10')
+
+json_protocol = JSONRPCProtocol()
+
+
+class AgentOffline(Exception):
+    pass
+
+
+class BusTransport(ClientTransport):
+    def __init__(self, agent, timeout=None, fail_silent=False):
+        self.timeout = timeout
+        self.fail_silent = fail_silent
+        self.agent = agent
+
+    def send_message(self, message, expect_reply=True):
+        data = {'message': 'rpc', 'data': message}
+        if expect_reply:
+            result = self.agent.call(data, timeout=self.timeout)
+            if result:
+                logger.info('--------------RESULT: %s', result)
+                logger.info('--------------RESULT: %s', result['rpc_result'])
+                return result['rpc_result']
+            if self.fail_silent:
+                res = {'jsonrpc': '2.0',
+                       'id': json.loads(message.decode())['id'],
+                       'result': False}
+                return json.dumps(res)
+            raise AgentOffline()
+        else:
+            result = self.agent.send(data, timeout=self.timeout)
+
+
+class AgentProxy(object):
+    def __init__(self, agent):
+        self.agent = agent
+
+    def get_proxy(self, timeout=None, fail_silent=False, one_way=False):
+        rpc_client = RPCClient(
+                        json_protocol,
+                        BusTransport(self.agent, timeout=timeout,
+                                     fail_silent=fail_silent))
+        server_proxy = rpc_client.get_proxy(one_way=one_way)
+        return server_proxy
 
 
 class Agent(models.Model):
@@ -122,13 +170,13 @@ class Agent(models.Model):
 
 
     @api.multi
-    def notify(self, message):
+    def send(self, message):
         self.ensure_one()
-        return self.notify_agent(self.agent_uid, message)
+        return self.send_agent(self.agent_uid, message)
 
 
     @api.model
-    def notify_agent(self, agent_uid, message):
+    def send_agent(self, agent_uid, message):
         # Unpack if required
         if type(message) != dict:
             message = json.loads(message)
@@ -173,9 +221,6 @@ class Agent(models.Model):
     @api.model
     def call_agent(self, agent_uid, message, timeout=None, silent=False):
         agent = self._get_agent_by_uid(agent_uid)
-        # Hack related to protocol change
-        if message.get('name'):
-            message['message'] = message.pop('name')
         if not timeout:
             timeout = agent.bus_timeout
         channel = 'remote_agent/{}'.format(self.agent_uid)
@@ -197,7 +242,6 @@ class Agent(models.Model):
                                         last=0, timeout=timeout)
         else:
             # Cron instance
-            odoo_started = datetime.now()
             started = datetime.now()
             to_end = started + timedelta(seconds=timeout)
             agent_reply = None
@@ -207,65 +251,82 @@ class Agent(models.Model):
                         env = api.Environment(new_cr, self.env.uid,
                                               self.env.context)
                         rec = env['bus.bus'].sudo().search(
-                            [('create_date', '>=', odoo_started),
+                            [('create_date', '>=', started),
                              ('channel', '=', '"{}"'.format(reply_channel))])
                         if not rec:
-                            time.sleep(0.2)
+                            time.sleep(0.25)
                         else:
                             logger.debug('Got reply within {} seconds'.format(
-                                    (datetime.now() - started).total_seconds()))
-                            agent_reply = [
-                                {'message': json.loads(
-                                            rec[0].message) if rec else {}}]
+                                (datetime.now() - started).total_seconds()))
+                            agent_reply = [{'message':
+                                            json.loads(rec[0].message)}]
                             break
         if agent_reply:
-            self.sudo().update_state(self.agent_uid, state='online',
-                                     note=_('Ping reply'))
-            if not silent:
-                self.env['bus.bus'].sendone(
-                                'notify_info_{}'.format(self.env.user.id),
-                                {'title': 'Agent',
-                                 'message': _('Agent is online!')})
-            reply_msg = agent_reply[0]['message'] if \
-                type(agent_reply[0]['message']) == dict else \
-                json.loads(agent_reply[0]['message'])
-            return reply_msg
+            # Update agent state
+            self.sudo().update_state(
+                                self.agent_uid, state='online', safe=True,
+                                note='{} reply'.format(message['message']))
+            # Convert result message to dict
+            reply_message = agent_reply[0]['message']
+            if type(reply_message) != dict:
+                json.loads(reply_message)
+            return reply_message
+        # No reply recieved
         else:
-            if not silent:
-                self.env['bus.bus'].sendone(
-                                'notify_warning_{}'.format(self.env.user.id),
-                                {'message': _('No reply from Agent!'),
-                                 'title': _('Agent')})
-            try:
-                self.sudo().update_state(
-                                    self.agent_uid, state='offline',
-                                    note=_('Message {} not replied'.format(
-                                                        message['message'])))
-            except Exception as e:
-                logger.error('Agent state update error: %s', e)
+            self.sudo().update_state(
+                            self.agent_uid, state='offline', safe=True,
+                            note='{} not replied'.format(message['message']))
             return {}
+
+
+    @api.multi
+    def execute(self, method, *args, **kwargs):
+        self.ensure_one()
+        logger.info('---------- %s', kwargs)
+        agent = AgentProxy(self).get_proxy(
+                                fail_silent=kwargs.pop('fail_silent', None),
+                                timeout=kwargs.pop('timeout', None))
+        getattr(agent, method)(*args, **kwargs)
+
+
+    @api.multi
+    def notify(self, method, *args, **kwargs):
+        self.ensure_one()
+        agent = AgentProxy(self).get_proxy(
+                                one_way=True,
+                                fail_silent=kwargs.pop('fail_silent', None),
+                                timeout=kwargs.pop('timeout', None))
+        getattr(agent, method)(*args, **kwargs)
+
+
 
 
     @api.multi
     def restart_agent(self):
         self.ensure_one()
         self.call({'message': 'restart',
-                              'notify_uid': self.env.user.id})
+                   'notify_uid': self.env.user.id})
 
 
     @api.multi
     def ping_button(self):
         self.ensure_one()
-        self.call({'message': 'ping'})
+        res = self.execute('ping', fail_silent=True)
+        logger.info('----------------%s', res)
+        if not res:
+            self.env['bus.bus'].sendone(
+                                'notify_warning_{}'.format(self.env.uid),
+                                {'title': 'Agent',
+                                 'message': 'Agent is offline!'})
 
 
     @api.model
-    def ping_all(self, random_sleep=60):
+    def update_state_all(self, random_sleep=10):
         # We use random sleep to distribute state update over this period.
         for agent in self.search([]):
             self.env['bus.bus'].sendone(
                         'remote_agent/{}'.format(agent.agent_uid), {
-                                        'message': 'ping',
+                                        'message': 'update_state',
                                         'token': agent.token,
                                         'random_sleep': random_sleep})
 
@@ -377,17 +438,32 @@ class Agent(models.Model):
 
     @api.model
     def update_state(self, agent_uid, state='online',
-                     note=False, force_create=False):
+                     note=False, force_create=False, safe=False):
         agent = self._get_agent_by_uid(agent_uid)
         last_state = self.env['remote_agent.agent_state'].search([
             ('agent', '=', agent.id)], limit=1, order='id desc')
         # Create online state if previous state was offline
         if (force_create or not last_state or
                 (last_state and last_state.state != state)):
-            self.env['remote_agent.agent_state'].create({
-                                                'agent': agent.id,
-                                                'note': note,
-                                                'state': state})
+            if safe:
+                # Update state in separate transaction
+                try:
+                    with api.Environment.manage():
+                        with registry(self.env.cr.dbname).cursor() as new_cr:
+                            env = api.Environment(
+                                        new_cr, self.env.uid, self.env.context)
+                            env['remote_agent.agent_state'].create({
+                                                    'agent': agent.id,
+                                                    'note': note,
+                                                    'state': state})
+                except Exception as e:
+                    logger.warning('Agent update state: %s', e)
+            else:
+                # Called from agents so no need for separate transaction
+                self.env['remote_agent.agent_state'].create({
+                                        'agent': agent.id,
+                                        'note': note,
+                                        'state': state})
         return True
 
 

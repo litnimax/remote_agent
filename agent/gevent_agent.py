@@ -3,6 +3,8 @@ import argparse
 import gevent
 from gevent.monkey import  patch_all; patch_all()
 from gevent.pool import Event
+from gevent.queue import Queue
+from gevent.pywsgi import WSGIServer
 import json
 import logging
 import odoorpc
@@ -11,12 +13,26 @@ import os
 import random
 import requests
 import sys
+from tinyrpc.dispatch import RPCDispatcher
+from tinyrpc.transports.callback import CallbackServerTransport
+from tinyrpc.server.gevent import RPCServerGreenlets
+from tinyrpc.protocols.jsonrpc import JSONRPCProtocol
 from urllib2 import URLError
 import uuid
-from gevent.pywsgi import WSGIServer
 
 
 logger = logging.getLogger('remote_agent')
+
+
+dispatch = RPCDispatcher()
+
+
+class AgentCallbackServerTransport(CallbackServerTransport):
+    # Patch tinyrpc
+    def receive_message(self):
+        return self.reader()
+    def send_reply(self, context, reply):
+        self.writer(context, reply)
 
 
 class GeventAgent(object):
@@ -50,6 +66,7 @@ class GeventAgent(object):
     bus_call_timeout = int(os.getenv('ODOO_BUS_CALL_TIMEOUT', '-1'))
     disable_odoo_bus_poll = os.getenv('DISABLE_ODOO_BUS_POLL')
     bus_enabled = disable_odoo_bus_poll != '1'
+    bus_trace = bool(int(os.getenv('BUS_TRACE', '0')))
     https_enabled = disable_odoo_bus_poll == '1'
     odoo_verify_cert = bool(int(os.getenv('ODOO_VERIFY_CERT', '0')))
     # HTTPS communication settings when bus is not enabled
@@ -67,6 +84,9 @@ class GeventAgent(object):
     token = None
     # Builtin HTTPS server to accept messages
     wsgi_server = None
+    rpc_server = None
+    rpc_requests = Queue()
+    trace_rpc = bool(int(os.getenv('TRACE_RPC', '0')))
 
     def __init__(self, agent_model=None, agent_channel=None):
         if agent_model:
@@ -101,12 +121,57 @@ class GeventAgent(object):
             import urllib3
             urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
             logging.getLogger("urllib3").setLevel(logging.ERROR)
+            # Init RPC
+            protocol = JSONRPCProtocol()
+            protocol._caller = self._rpc_caller
+            self.rpc_server = RPCServerGreenlets(
+                        AgentCallbackServerTransport(
+                            self.receive_rpc_message, self.send_rpc_reply),
+                        protocol,
+                        dispatch)
+            if self.trace_rpc:
+                self.rpc_server.trace = self.trace_rpc_message
+
+
+    def _rpc_caller(self, method, args, kwargs):
+        # Inject self to args
+        return method(self, *args, **kwargs)
+
+
+    def receive_rpc_message(self):
+        # Get next message from the requests queue
+        logger.debug('Waiting for next RPC message...')
+        reply_channel, r = self.rpc_requests.get()
+        logger.debug('RPC queue received: %s', r)
+        return reply_channel, bytes(r)
+
+
+    def send_rpc_reply(self, reply_channel, reply):
+        self.odoo_connected.wait()
+        logger.debug('RPC reply to %s: %s', reply_channel, reply)
+        self.odoo.env[
+            self.agent_model].bus_sendone(reply_channel, {'rpc_result': reply})
+
+
+    def trace_rpc_message(self, direction, context, message):
+        logger.debug('RPC %s, %s, %s', direction, context, message)
+
+
+    @dispatch.public
+    def test(self, poll):
+        return 'replyed'
+
+    @dispatch.public
+    def ping(self):
+        logger.info('RPC Ping')
+        return True
 
 
     def spawn(self):
         hlist = []
         hlist.append(gevent.spawn(self.connect))
         hlist.append(gevent.spawn(self.odoo_bus_poll))
+        hlist.append(gevent.spawn(self.rpc_server.serve_forever))
         if self.https_enabled:
             logger.info('Starting Agent WEB server at port %s', self.https_port)
             hlist.append(gevent.spawn(self.wsgi_server.serve_forever))
@@ -176,7 +241,7 @@ class GeventAgent(object):
                 self.update_state(force_create=True, note='Agent started')
                 if self.bus_enabled:
                     # Send 1-st message that will be omitted
-                    self.odoo.env[self.agent_model].notify_agent(
+                    self.odoo.env[self.agent_model].send_agent(
                                             self.agent_uid,
                                             json.dumps({
                                                 'message': 'ping',
@@ -304,6 +369,8 @@ class GeventAgent(object):
                                         '{}/{}'.format(
                                                         self.agent_channel,
                                                         self.agent_uid)]}})
+                if self.bus_trace:
+                    logger.debug('Bus trace: %s', r.text)
                 result = r.json().get('result')
                 if not result:
                     error = r.json().get('error')
@@ -402,17 +469,17 @@ class GeventAgent(object):
             logger.error('Message handler not found for {}'.format(name))
 
 
-    def on_message_ping(self, channel, msg):
-        if msg.get('reply_channel'):
-            self.odoo.env[self.agent_model].bus_sendone(
-                                    msg['reply_channel'], {'state': 'online'})
-            logger.debug(u'Ping replied')
-        else:
-            random_sleep = int(msg.get('random_sleep', '0'))
-            sleep_time = random_sleep * random.random()
-            logger.debug(u'State update on ping after %0.2f sec', sleep_time)
-            gevent.sleep(sleep_time)
-            self.update_state(note='Ping update')
+    def on_message_rpc(self, channel, msg):
+        logger.debug('RPC message received: %s', msg['data'])
+        self.rpc_requests.put((msg.get('reply_channel'), msg['data']))
+
+
+    def on_message_update_state(self, channel, msg):
+        random_sleep = int(msg.get('random_sleep', '0'))
+        sleep_time = random_sleep * random.random()
+        logger.debug(u'State update after %0.2f sec', sleep_time)
+        gevent.sleep(sleep_time)
+        self.update_state(note='State update')
 
 
     def on_message_restart(self, channel, msg):
