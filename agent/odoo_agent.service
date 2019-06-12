@@ -1,0 +1,16 @@
+[Unit]
+Description=Odoo agent
+After=network.target
+
+[Service]
+User=root
+ExecStart=/bin/bash /srv/agent/start_agent.sh
+WorkingDirectory=/srv/agent/
+Restart=always
+RemainAfterExit=no
+StandardOutput=syslog
+StandardError=syslog
+SyslogIdentifier=ODOO_AGENT
+
+[Install]
+WantedBy=multi-user.target
