@@ -133,40 +133,6 @@ class GeventAgent(object):
                 self.rpc_server.trace = self.trace_rpc_message
 
 
-    def _rpc_caller(self, method, args, kwargs):
-        # Inject self to args
-        return method(self, *args, **kwargs)
-
-
-    def receive_rpc_message(self):
-        # Get next message from the requests queue
-        logger.debug('Waiting for next RPC message...')
-        reply_channel, r = self.rpc_requests.get()
-        logger.debug('RPC queue received: %s', r)
-        return reply_channel, bytes(r)
-
-
-    def send_rpc_reply(self, reply_channel, reply):
-        self.odoo_connected.wait()
-        logger.debug('RPC reply to %s: %s', reply_channel, reply)
-        self.odoo.env[
-            self.agent_model].bus_sendone(reply_channel, {'rpc_result': reply})
-
-
-    def trace_rpc_message(self, direction, context, message):
-        logger.debug('RPC %s, %s, %s', direction, context, message)
-
-
-    @dispatch.public
-    def test(self, poll):
-        return 'replyed'
-
-    @dispatch.public
-    def ping(self):
-        logger.info('RPC Ping')
-        return True
-
-
     def spawn(self):
         hlist = []
         hlist.append(gevent.spawn(self.connect))
@@ -494,6 +460,34 @@ class GeventAgent(object):
             args.append('--notify_uid={}'.format(msg['notify_uid']))
         os.execv(sys.executable, ['python2.7'] + args)
 
+    def _rpc_caller(self, method, args, kwargs):
+        # Inject self to args
+        return method(self, *args, **kwargs)
+
+
+    def receive_rpc_message(self):
+        # Get next message from the requests queue
+        logger.debug('Waiting for next RPC message...')
+        reply_channel, r = self.rpc_requests.get()
+        logger.debug('RPC queue received: %s', r)
+        return reply_channel, bytes(r)
+
+
+    def send_rpc_reply(self, reply_channel, reply):
+        self.odoo_connected.wait()
+        logger.debug('RPC reply to %s: %s', reply_channel, reply)
+        self.odoo.env[
+            self.agent_model].bus_sendone(reply_channel, {'rpc_result': reply})
+
+
+    def trace_rpc_message(self, direction, context, message):
+        logger.debug('RPC %s, %s, %s', direction, context, message)
+
+
+    @dispatch.public
+    def ping(self):
+        logger.info('RPC Ping')
+        return True
 
     def notify_user(self, uid, message, title='Agent', warning=False):
         self.odoo_connected.wait()
