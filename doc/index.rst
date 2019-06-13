@@ -19,6 +19,9 @@ Features
 
 * Odoo connection watcher (auto re-connect after disconnect).
 * Two alternative communication channels: bus and https.
+* Connection monitor ans statistics (via cron job).
+* Agent remote restart (restart agent process from Odoo).
+
 
 Development documentation
 #########################
@@ -40,7 +43,13 @@ Copy *remote_agent* package to */mnt/external-addons* or another directory where
 
 Install external libs and modules
 #################################
-These dependencies are not required to install *remote_agent* but when installed provide additional features.
+Install TinyRPC library:
+
+```
+pip3 install TinyRPC
+```
+
+The following dependencies are not required to install and run *remote_agent* but when installed provide additional features.
 
 Humanize
 ++++++++
