@@ -50,9 +50,7 @@ class BusTransport(ClientTransport):
         if expect_reply:
             result = self.agent.call(data, timeout=self.timeout)
             if result:
-                logger.info('--------------RESULT: %s', result)
-                logger.info('--------------RESULT: %s', result['rpc_result'])
-                return result['rpc_result']
+                return result['rpc_result'].encode()
             if self.fail_silent:
                 res = {'jsonrpc': '2.0',
                        'id': json.loads(message.decode())['id'],
@@ -157,7 +155,7 @@ class Agent(models.Model):
 
 
     @api.multi
-    def on_write(vals):
+    def on_write(self, vals):
         # Override this to add your custom code e.g. notify agents on update
         pass
 
@@ -292,11 +290,10 @@ class Agent(models.Model):
     @api.multi
     def execute(self, method, *args, **kwargs):
         self.ensure_one()
-        logger.info('---------- %s', kwargs)
         agent = AgentProxy(self).get_proxy(
                                 fail_silent=kwargs.pop('fail_silent', None),
                                 timeout=kwargs.pop('timeout', None))
-        getattr(agent, method)(*args, **kwargs)
+        return getattr(agent, method)(*args, **kwargs)
 
 
     @api.multi
