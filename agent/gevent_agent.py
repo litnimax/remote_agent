@@ -263,6 +263,7 @@ class GeventAgent(object):
                                            force_create=force_create,
                                            note=note)
 
+
     def set_alarm(self, message):
         logger.debug('Set alarm: %s', message)
         self.odoo_connected.wait()
@@ -460,6 +461,7 @@ class GeventAgent(object):
             args.append('--notify_uid={}'.format(msg['notify_uid']))
         os.execv(sys.executable, ['python2.7'] + args)
 
+
     def _rpc_caller(self, method, args, kwargs):
         # Inject self to args
         return method(self, *args, **kwargs)
@@ -489,6 +491,7 @@ class GeventAgent(object):
         logger.info('RPC Ping')
         return True
 
+
     def notify_user(self, uid, message, title='Agent', warning=False):
         self.odoo_connected.wait()
         if not uid:
@@ -508,6 +511,7 @@ class GeventAgent(object):
 if __name__ == '__main__':
     logging.basicConfig(
                 level=logging.INFO,
-                format='%(asctime)s - %(levelname)s - %(name)s - %(message)s')
+                format='%(asctime)s - %(levelname)s - '
+                       '%(name)s.%(funcName)s:%(lineno)d - %(message)s')
     a = GeventAgent()
     a.start()

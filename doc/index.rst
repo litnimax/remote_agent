@@ -9,16 +9,15 @@ Concept
 -------
 Existing Odoo clients can only call Odoo methods. This solutions uses *odoorpc* library for this.
 
-This solution also gives the ability to call from Odoo remote client using 2 ways of communication:
+This solution also gives the ability to call remote client from Odoo  using 2 ways of communication:
 
-* Odoo bus polling
-* HTTPS
+* JSON-RPC over Odoo bus (PUB/SUB via long polling).
+* JSON-RPC via HTTPS.
 
 Features
 ########
 
 * Odoo connection watcher (auto re-connect after disconnect).
-* Query pool (queries are not lost during Odoo disconnects).
 * Two alternative communication channels: bus and https.
 
 Development documentation

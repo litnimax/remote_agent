@@ -149,7 +149,17 @@ class Agent(models.Model):
     @api.multi
     def write(self, vals):
         res = super(Agent, self.sudo()).write(vals)
+        try:
+            self.on_write(vals)
+        except:
+            logger.exception('Agent on_write error:')
         return res
+
+
+    @api.multi
+    def on_write(vals):
+        # Override this to add your custom code e.g. notify agents on update
+        pass
 
 
     def generate_password(length=DEFAULT_PASSWORD_LENGTH):
@@ -312,7 +322,6 @@ class Agent(models.Model):
     def ping_button(self):
         self.ensure_one()
         res = self.execute('ping', fail_silent=True)
-        logger.info('----------------%s', res)
         if not res:
             self.env['bus.bus'].sendone(
                                 'notify_warning_{}'.format(self.env.uid),
