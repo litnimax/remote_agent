@@ -79,7 +79,7 @@ class Agent(models.Model):
     _description = 'Remote Agent'
     _rec_name = 'agent_uid'
 
-    agent_uid = fields.Char(string=_('Agent UID'))
+    agent_uid = fields.Char(string=_('Agent UID'), required=True)
     agent_version = fields.Char(readonly=True, string=_('Version'))
     note = fields.Text()
     alarm = fields.Text(readonly=True)
@@ -120,12 +120,21 @@ class Agent(models.Model):
     def create(self, vals):
         agent_group = self.env['ir.model.data'].get_object('remote_agent',
                                                            'group_agent_agent')
-        user = self.env['res.users'].sudo().create({
-            'name': vals.get('agent_uid'),
-            'login': vals.get('login'),
-            'groups_id': [(6, 0, [agent_group.id])],
-            'password': vals.get('password'),
-        })
+        user = self.env['res.users'].sudo().search(
+                                        [('login', '=', vals.get('login'))])
+        if user:
+            # Check that user has Agent group
+            if not user.has_group('remote_agent.group_agent_agent'):
+                agent_group = self.env['ir.model.data'].sudo().get_object(
+                                            'remote_agent.group_agent_agent')
+                agent_group.write([4, user.id])
+        else:
+            user = self.env['res.users'].sudo().create({
+                'name': vals.get('agent_uid'),
+                'login': vals.get('login'),
+                'groups_id': [(6, 0, [agent_group.id])],
+                'password': vals.get('password'),
+            })
         vals.update({'user': user.id})
         agent = super(Agent, self).create(vals)
         return agent
@@ -188,13 +197,7 @@ class Agent(models.Model):
         # Unpack if required
         if type(message) != dict:
             message = json.loads(message)
-        agent = self.search([('agent_uid', '=', agent_uid)])
-        if not agent:
-            raise ValidationError('Agent not found by uid {}'.format(agent_uid))
-        agent = agent[0]
-        # Hack related to protocol change
-        if message.get('name'):
-            message['message'] = message.pop('name')
+        agent = self._get_agent_by_uid(agent_uid)
         if agent.https_enabled:
             # Use Agent HTTPS interface to communicate
             res = None
@@ -420,11 +423,15 @@ class Agent(models.Model):
 
     ######################### RPC Calls from Agent ############################
 
-    def _get_agent_by_uid(self, agent_uid):
+    def _get_agent_by_uid(self, agent_uid, raise_excepion=True):
         agent = self.search([('agent_uid', '=', agent_uid)])
         if not agent:
-            raise ValidationError(
+            if raise_excepion:
+                raise ValidationError(
                                 'Agent not found by UID {}'.format(agent_uid))
+            else:
+                return
+        # Agent found, return it.
         return agent[0]
 
 

@@ -31,6 +31,7 @@ class AgentCallbackServerTransport(CallbackServerTransport):
     # Patch tinyrpc
     def receive_message(self):
         return self.reader()
+
     def send_reply(self, context, reply):
         self.writer(context, reply)
 
@@ -64,10 +65,10 @@ class GeventAgent(object):
     odoo_bus_timeout = float(os.getenv('ODOO_BUS_TIMEOUT', '55'))
     # Response timeout when Odoo communicates via bus with agent
     bus_call_timeout = int(os.getenv('ODOO_BUS_CALL_TIMEOUT', '-1'))
-    disable_odoo_bus_poll = os.getenv('DISABLE_ODOO_BUS_POLL')
-    bus_enabled = disable_odoo_bus_poll != '1'
+    disable_odoo_bus_poll = bool(int(os.getenv('DISABLE_ODOO_BUS_POLL', '0')))
+    bus_enabled = not disable_odoo_bus_poll
     bus_trace = bool(int(os.getenv('BUS_TRACE', '0')))
-    https_enabled = disable_odoo_bus_poll == '1'
+    https_enabled = disable_odoo_bus_poll
     odoo_verify_cert = bool(int(os.getenv('ODOO_VERIFY_CERT', '0')))
     # HTTPS communication settings when bus is not enabled
     https_port = int(os.getenv('AGENT_PORT', '40000'))
@@ -99,7 +100,8 @@ class GeventAgent(object):
             logger.setLevel(logging.DEBUG)
         else:
             logger.setLevel(logging.INFO)
-        logger.info('Odoo agent version {} init'.format(self.version))
+        logger.info('Odoo agent UID {} version {} init'.format(
+                                                self.agent_uid, self.version))
         # Init event with disconnected state
         self.odoo_disconnected.set()
         # Init WEB server
@@ -138,6 +140,7 @@ class GeventAgent(object):
         hlist.append(gevent.spawn(self.connect))
         hlist.append(gevent.spawn(self.odoo_bus_poll))
         hlist.append(gevent.spawn(self.rpc_server.serve_forever))
+        gevent.spawn(self.on_start)
         if self.https_enabled:
             logger.info('Starting Agent WEB server at port %s', self.https_port)
             hlist.append(gevent.spawn(self.wsgi_server.serve_forever))
@@ -147,7 +150,6 @@ class GeventAgent(object):
     def start(self):
         try:
             hlist = self.spawn()
-            gevent.spawn(self.on_start)
             gevent.joinall(hlist)
         except (KeyboardInterrupt, SystemExit):
             self.stop()
@@ -200,19 +202,13 @@ class GeventAgent(object):
                 odoo.login(self.odoo_db, self.odoo_login, self.odoo_password)
                 logger.info('Connected to Odoo as %s', self.odoo_login)
                 self.odoo = odoo
+                self.update_settings()
+                # Now let other methods wake up and do the work
                 self.odoo_connected.set()
                 self.odoo_disconnected.clear()
-                self.update_settings()
+                self.odoo_disconnected.wait()
                 # Create a new online state
                 self.update_state(force_create=True, note='Agent started')
-                if self.bus_enabled:
-                    # Send 1-st message that will be omitted
-                    self.odoo.env[self.agent_model].send_agent(
-                                            self.agent_uid,
-                                            json.dumps({
-                                                'message': 'ping',
-                                                'random_sleep': '1'}))
-                self.odoo_disconnected.wait()
             except RPCError as e:
                 if 'res.users()' in str(e):
                     logger.error(
@@ -315,12 +311,20 @@ class GeventAgent(object):
             logger.info('Odoo bus poll is disabled')
             return
         self.odoo_connected.wait()
+        # Send 1-st message that will be omitted
+        self.odoo.env[self.agent_model].send_agent(
+                                self.agent_uid,
+                                json.dumps({
+                                    'message': 'ping',
+                                    'random_sleep': '0'}))
         last = 0
         while True:
             try:
                 bus_url = '{}://{}:{}/longpolling/poll'.format(
                     self.odoo_scheme, self.odoo_host, self.odoo_polling_port)
-                logger.debug('Starting odoo bus polling at %s', bus_url)
+                channel = '{}/{}'.format(self.agent_channel, self.agent_uid)
+                logger.info('Starting odoo bus polling channel %s at %s',
+                            channel, bus_url)
                 # Select DB first
                 self.select_db()
                 # Now let try to poll
@@ -332,12 +336,13 @@ class GeventAgent(object):
                             json={
                                 'params': {
                                     'last': last,
-                                    'channels': [
-                                        '{}/{}'.format(
-                                                        self.agent_channel,
-                                                        self.agent_uid)]}})
+                                    'channels': [channel]}})
                 if self.bus_trace:
                     logger.debug('Bus trace: %s', r.text)
+                try:
+                    r.json()
+                except ValueError:
+                    logger.error('JSON parse bus reply error: %s', r.text)
                 result = r.json().get('result')
                 if not result:
                     error = r.json().get('error')

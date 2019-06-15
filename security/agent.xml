@@ -26,7 +26,7 @@
         <field name="perm_unlink" eval="0"/>
     </record>
 
-    <!-- Records rules -->
+<!-- Records rules -->
     
     <record model="ir.rule" id="agent_own_rule">
         <field name="name">Agent own rule</field>
