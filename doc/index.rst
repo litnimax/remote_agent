@@ -14,6 +14,8 @@ This solution also gives the ability to call remote client from Odoo  using 2 wa
 * JSON-RPC over Odoo bus (PUB/SUB via long polling).
 * JSON-RPC via HTTPS.
 
+.. image:: https://raw.githubusercontent.com/litnimax/remote_agent/master/static/description/img/concept.png
+
 Features
 ########
 
