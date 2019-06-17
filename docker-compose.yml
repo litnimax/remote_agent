@@ -27,8 +27,6 @@ services:
     #  - "127.0.0.1:8072:8072"
     volumes:
       - odoo-data:/var/lib/odoo
-    # Remove -i web_notify,remote_agent after first run otheriwise initial setting will be overwritten.
-    command: ["odoo", "-i", "web_notify,remote_agent"]
 
 
   agent:

@@ -13,7 +13,7 @@ import os
 import random
 import requests
 import sys
-from tinyrpc.dispatch import RPCDispatcher
+from tinyrpc.dispatch import RPCDispatcher, public
 from tinyrpc.transports.callback import CallbackServerTransport
 from tinyrpc.server.gevent import RPCServerGreenlets
 from tinyrpc.protocols.jsonrpc import JSONRPCProtocol
@@ -23,8 +23,8 @@ import uuid
 
 logger = logging.getLogger('remote_agent')
 
-
-dispatch = RPCDispatcher()
+rpc_protocol = JSONRPCProtocol()
+rpc_dispatcher = RPCDispatcher()
 
 
 class AgentCallbackServerTransport(CallbackServerTransport):
@@ -124,15 +124,14 @@ class GeventAgent(object):
             urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
             logging.getLogger("urllib3").setLevel(logging.ERROR)
             # Init RPC
-            protocol = JSONRPCProtocol()
-            protocol._caller = self._rpc_caller
-            self.rpc_server = RPCServerGreenlets(
-                        AgentCallbackServerTransport(
-                            self.receive_rpc_message, self.send_rpc_reply),
-                        protocol,
-                        dispatch)
-            if self.trace_rpc:
-                self.rpc_server.trace = self.trace_rpc_message
+        rpc_dispatcher.register_instance(self)
+        self.rpc_server = RPCServerGreenlets(
+                    AgentCallbackServerTransport(
+                        self.receive_rpc_message, self.send_rpc_reply),
+                    rpc_protocol,
+                    rpc_dispatcher)
+        if self.trace_rpc:
+            self.rpc_server.trace = self.trace_rpc_message
 
 
     def spawn(self):
@@ -323,8 +322,8 @@ class GeventAgent(object):
                 bus_url = '{}://{}:{}/longpolling/poll'.format(
                     self.odoo_scheme, self.odoo_host, self.odoo_polling_port)
                 channel = '{}/{}'.format(self.agent_channel, self.agent_uid)
-                logger.info('Starting odoo bus polling channel %s at %s',
-                            channel, bus_url)
+                logger.debug('Polling %s at %s',
+                             channel, bus_url)
                 # Select DB first
                 self.select_db()
                 # Now let try to poll
@@ -449,9 +448,10 @@ class GeventAgent(object):
     def on_message_update_state(self, channel, msg):
         random_sleep = int(msg.get('random_sleep', '0'))
         sleep_time = random_sleep * random.random()
-        logger.debug(u'State update after %0.2f sec', sleep_time)
+        logger.debug('State update after %0.2f sec', sleep_time)
         gevent.sleep(sleep_time)
         self.update_state(note='State update')
+        logger.info('State updated')
 
 
     def on_message_restart(self, channel, msg):
@@ -465,11 +465,6 @@ class GeventAgent(object):
             logger.debug('Will notify uid %s after restart', msg['notify_uid'])
             args.append('--notify_uid={}'.format(msg['notify_uid']))
         os.execv(sys.executable, ['python2.7'] + args)
-
-
-    def _rpc_caller(self, method, args, kwargs):
-        # Inject self to args
-        return method(self, *args, **kwargs)
 
 
     def receive_rpc_message(self):
@@ -491,7 +486,7 @@ class GeventAgent(object):
         logger.debug('RPC %s, %s, %s', direction, context, message)
 
 
-    @dispatch.public
+    @public
     def ping(self):
         logger.info('RPC Ping')
         return True

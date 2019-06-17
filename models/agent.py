@@ -290,6 +290,11 @@ class Agent(models.Model):
             return {}
 
 
+    @api.model
+    def execute_agent(self, agent_uid, method, *args, **kwargs):
+        agent = self._get_agent_by_uid(agent_uid)
+        return agent.execute(method, *args, **kwargs)
+
     @api.multi
     def execute(self, method, *args, **kwargs):
         self.ensure_one()
