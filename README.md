@@ -11,3 +11,5 @@ Remote Agent uses Odoo's /longpolling/poll controller to keep continuous connect
 TinyRPC library is used to run a RPC server on remote agents.
 
 See [Wiki](https://github.com/litnimax/remote_agent/wiki) for more documentation.
+
+See [example](https://github.com/litnimax/remote_agent_example) of using this application.
