@@ -5,9 +5,11 @@
     'author': 'Odooist',
     'maintainer': 'Odooist',
     'support': 'odooist@gmail.com',
+    'license': 'LGPL-3',
     'category': 'Hidden',
     'summary': 'Connect from Odoo to remote agents',
     'description': "",
+    'website': 'http://github.com/litnimax/remote_agent',
     'external_dependencies': {
         'python': ['tinyrpc'],
     },
@@ -27,5 +29,5 @@
     'installable': True,
     'application': True,
     'auto_install': False,
-    'images': ['static/description/history_graph_crm.png'],
+    'images': ['static/description/screenshot1.png'],
 }
