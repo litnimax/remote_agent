@@ -6,7 +6,7 @@
     'maintainer': 'Odooist',
     'support': 'odooist@gmail.com',
     'license': 'LGPL-3',
-    'category': 'Hidden',
+    'category': 'Tools',
     'summary': 'Connect from Odoo to remote agents',
     'description': "",
     'website': 'http://github.com/litnimax/remote_agent',
