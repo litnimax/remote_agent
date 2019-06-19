@@ -14,9 +14,9 @@ import time
 import urllib3
 import uuid
 
-from odoo import models, fields, api, registry, _
-from odoo.exceptions import ValidationError
-from odoo.addons.bus.models.bus import dispatch
+from openerp import models, fields, api, registry, _
+from openerp.exceptions import ValidationError
+from openerp.addons.bus.models.bus import dispatch
 
 from tinyrpc import RPCClient
 from tinyrpc.protocols.jsonrpc import JSONRPCProtocol
@@ -262,7 +262,8 @@ class Agent(models.Model):
                         env = api.Environment(new_cr, self.env.uid,
                                               self.env.context)
                         rec = env['bus.bus'].sudo().search(
-                            [('create_date', '>=', started),
+                            [('create_date', '>=', started.strftime(
+                                                    '%Y-%m-%d %H:%M:%S.%f')),
                              ('channel', '=', '"{}"'.format(reply_channel))])
                         if not rec:
                             time.sleep(0.25)

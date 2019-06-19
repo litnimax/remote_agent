@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 import logging
-from odoo import models, fields, api
+from openerp import models, fields, api
 
 logger = logging.getLogger(__name__)
 
