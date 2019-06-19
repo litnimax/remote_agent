@@ -59,8 +59,8 @@ class GeventAgent(object):
     odoo_password = os.getenv('ODOO_PASSWORD', 'service')
     odoo_scheme = os.getenv('ODOO_SCHEME', 'http')
     odoo_polling_port = os.getenv('ODOO_POLLING_PORT', '8072')
-    odoo_reconnect_timeout = float(os.getenv(
-                                            'ODOO_RECONNECT_TIMEOUT', '1'))
+    odoo_reconnect_seconds = float(os.getenv(
+                                            'ODOO_RECONNECT_SECONDS', '1'))
     # Poll timeout when when agents calls /longpolling/poll
     odoo_bus_timeout = float(os.getenv('ODOO_BUS_TIMEOUT', '55'))
     # Response timeout when Odoo communicates via bus with agent
@@ -230,7 +230,7 @@ class GeventAgent(object):
                 else:
                     logger.exception(e)
 
-            gevent.sleep(self.odoo_reconnect_timeout)
+            gevent.sleep(self.odoo_reconnect_seconds)
 
 
     def update_settings(self):
@@ -347,7 +347,7 @@ class GeventAgent(object):
                     error = r.json().get('error')
                     if error:
                         logger.error(json.dumps(error, indent=2))
-                        gevent.sleep(self.odoo_reconnect_timeout)
+                        gevent.sleep(self.odoo_reconnect_seconds)
                         continue
                 if last == 0:
                     # Ommit queued data
@@ -395,7 +395,7 @@ class GeventAgent(object):
                 else:
                     logger.exception('Bus error:')
                 if not no_wait:
-                    gevent.sleep(self.odoo_reconnect_timeout)
+                    gevent.sleep(self.odoo_reconnect_seconds)
 
 
     def wsgi_application(self, env, start_response):
