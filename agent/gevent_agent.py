@@ -314,11 +314,14 @@ class GeventAgent(object):
             return
         self.odoo_connected.wait()
         # Send 1-st message that will be omitted
-        self.odoo.env[self.agent_model].send_agent(
+        try:
+            self.odoo.env[self.agent_model].send_agent(
                                 self.agent_uid,
                                 json.dumps({
                                     'message': 'ping',
                                     'random_sleep': '0'}))
+        except Exception as e:
+            logger.exception('First ping error:')
         last = 0
         while True:
             try:
