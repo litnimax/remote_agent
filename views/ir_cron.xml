@@ -5,9 +5,9 @@
         <field name="interval_type">minutes</field>
         <field name="numbercall">-1</field>
         <field name="doall" eval="False"/>
-        <field name="model_id" ref="model_remote_agent_agent"></field>
-        <field name="code">model.update_state_all()</field>
-        <field name="state">code</field>
+        <field name="model">remote_agent.agent</field>
+        <field name="function">update_state_all</field>
+        <field name="args">()</field>
     </record>
 
     <record id="vacuum" model="ir.cron">
@@ -16,9 +16,9 @@
         <field name="interval_type">days</field>
         <field name="numbercall">-1</field>
         <field name="doall" eval="False"/>
-        <field name="model_id" ref="model_remote_agent_agent_state"></field>
-        <field name="code">model.vacuum(days=7)</field>
-        <field name="state">code</field>
+        <field name="model">remote_agent.agent_state</field>
+        <field name="function">vacuum</field>
+        <field name="args">(7,)</field>
     </record>
 
 </data></odoo>

@@ -29,7 +29,6 @@
             <field name='arch' type='xml'>
                 <tree decoration-danger="alarm != False">
                     <field name="alarm" invisible="1"/>
-                    <field name="state_icon" widget="html" string="S"/>
                     <field name="agent_uid"/>
                     <field name="last_state_name"/>
                     <field name="last_state_human"/>
