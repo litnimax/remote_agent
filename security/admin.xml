@@ -1,4 +1,4 @@
-<odoo>
+<openerp><data>
     <record model="res.groups" id="group_agent_admin">
         <field name="name">Admin</field>
         <field name="category_id" ref="module_remote_agent_category"/>
@@ -39,4 +39,4 @@
         <field name="perm_unlink" eval="1"/>
     </record>
 
-</odoo>
+</data></openerp>

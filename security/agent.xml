@@ -1,7 +1,8 @@
-<odoo>
+<openerp><data>
     <record model="res.groups" id="group_agent_agent">
         <field name="name">Agent</field>
-        <field name="category_id" ref="module_remote_agent_category"/>        
+        <field name="category_id" ref="module_remote_agent_category"/> 
+        <field name="implied_ids" eval="[(4, ref('base.group_portal'))]"/>
     </record>
 
     <!-- Model rules -->
@@ -39,4 +40,4 @@
         <field name="perm_unlink" eval="1"/>
     </record>
 
-</odoo>
+</data></openerp>

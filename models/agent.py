@@ -16,7 +16,7 @@ import uuid
 
 from openerp import models, fields, api, registry, _
 from openerp.exceptions import ValidationError
-from openerp.addons.bus.models.bus import dispatch
+from openerp.addons.bus.bus import dispatch
 
 from tinyrpc import RPCClient
 from tinyrpc.protocols.jsonrpc import JSONRPCProtocol

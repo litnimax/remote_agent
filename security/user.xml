@@ -1,4 +1,4 @@
-<odoo>
+<openerp><data>
     <record model="res.groups" id="group_agent_user">
         <field name="name">User</field>
         <field name="category_id" ref="module_remote_agent_category"/>
@@ -38,4 +38,4 @@
     </record>
 
 
-</odoo>
+</data></openerp>
