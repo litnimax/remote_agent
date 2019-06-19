@@ -46,7 +46,7 @@ class BusTransport(ClientTransport):
         self.agent = agent
 
     def send_message(self, message, expect_reply=True):
-        data = {'message': 'rpc', 'data': message}
+        data = {'message': 'rpc', 'data': message.decode()}
         if expect_reply:
             result = self.agent.call(data, timeout=self.timeout)
             if result:

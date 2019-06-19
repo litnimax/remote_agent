@@ -3,7 +3,7 @@
         <field name="name">Admin</field>
         <field name="category_id" ref="module_remote_agent_category"/>
         <field name="implied_ids" eval="[(4, ref('group_agent_user'))]"/>
-        <field name="users" eval="[(4, ref('base.user_admin'))]"/>        
+        <field name="users" eval="[(4, ref('base.user_root'))]"/>
     </record>
 
     <record id="access_remote_agent_admin" model="ir.model.access">
