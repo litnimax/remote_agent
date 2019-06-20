@@ -16,6 +16,6 @@ export ODOO_DB=test
 export ODOO_LOGIN=test_agent
 export ODOO_PASSWORD=test
 export VERIFY_CERT=0 # Set to 1 if u use nginx with https and a public certificate.
-export ODOO_RECONNECT_TIMEOUT=1 # Reconnect every 1 seconds
+export ODOO_RECONNECT_SECONDS=1 # Reconnect every 1 seconds
 
 exec python2.7 gevent_agent.py

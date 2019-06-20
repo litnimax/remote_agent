@@ -43,6 +43,7 @@ class GeventAgent(object):
     odoo_connected = Event()
     odoo_disconnected = Event()
     odoo_session = requests.Session()
+    odoo_session_db_selected = False
     # Environment settings
     agent_uid = os.getenv('AGENT_UID') or str(uuid.getnode())
     agent_channel = os.getenv('AGENT_CHANNEL', 'remote_agent')
@@ -59,8 +60,8 @@ class GeventAgent(object):
     odoo_password = os.getenv('ODOO_PASSWORD', 'service')
     odoo_scheme = os.getenv('ODOO_SCHEME', 'http')
     odoo_polling_port = os.getenv('ODOO_POLLING_PORT', '8072')
-    odoo_reconnect_timeout = float(os.getenv(
-                                            'ODOO_RECONNECT_TIMEOUT', '1'))
+    odoo_reconnect_seconds = float(os.getenv(
+                                            'ODOO_RECONNECT_SECONDS', '1'))
     # Poll timeout when when agents calls /longpolling/poll
     odoo_bus_timeout = float(os.getenv('ODOO_BUS_TIMEOUT', '55'))
     # Response timeout when Odoo communicates via bus with agent
@@ -230,7 +231,7 @@ class GeventAgent(object):
                 else:
                     logger.exception(e)
 
-            gevent.sleep(self.odoo_reconnect_timeout)
+            gevent.sleep(self.odoo_reconnect_seconds)
 
 
     def update_settings(self):
@@ -274,35 +275,37 @@ class GeventAgent(object):
 
 
     def select_db(self):
-        if not self.odoo_connected.is_set() or self.odoo_disconnected.is_set():
-            logger.debug('Selecting Odoo database (session refresh)')
-            auth_url = '{}://{}:{}/web/session/authenticate'.format(
-                    self.odoo_scheme, self.odoo_host, self.odoo_polling_port)
-            data = {
-                'jsonrpc': '2.0',
-                'params': {
-                    'context': {},
-                    'db': self.odoo_db,
-                    'login': self.odoo_login,
-                    'password': self.odoo_password,
-                },
-            }
-            headers = {
-                'Content-type': 'application/json'
-            }
-            #req = Request('POST', url, data=json.dumps(data), headers=headers)
-            rep = self.odoo_session.post(
-                             auth_url,
-                             verify=self.https_verify_cert,
-                             data=json.dumps(data),
-                             headers=headers)
-            result = rep.json()
-            if rep.status_code != 200 or result.get('error'):
-                logger.error(u'Odoo authenticate error {}: {}'.format(
-                                        rep.status_code,
-                                        json.dumps(result['error'], indent=2)))
-            else:
-                logger.info('Odoo authenticated for long polling')
+        if self.odoo_session_db_selected:
+            return
+        logger.debug('Selecting Odoo database (session refresh)')
+        auth_url = '{}://{}:{}/web/session/authenticate'.format(
+                self.odoo_scheme, self.odoo_host, self.odoo_polling_port)
+        data = {
+            'jsonrpc': '2.0',
+            'params': {
+                'context': {},
+                'db': self.odoo_db,
+                'login': self.odoo_login,
+                'password': self.odoo_password,
+            },
+        }
+        headers = {
+            'Content-type': 'application/json'
+        }
+        #req = Request('POST', url, data=json.dumps(data), headers=headers)
+        rep = self.odoo_session.post(
+                         auth_url,
+                         verify=self.https_verify_cert,
+                         data=json.dumps(data),
+                         headers=headers)
+        result = rep.json()
+        if rep.status_code != 200 or result.get('error'):
+            logger.error(u'Odoo authenticate error {}: {}'.format(
+                                    rep.status_code,
+                                    json.dumps(result['error'], indent=2)))
+        else:
+            logger.info('Odoo authenticated for long polling')
+        self.odoo_session_db_selected = True
 
 
     def odoo_bus_poll(self):
@@ -311,22 +314,25 @@ class GeventAgent(object):
             return
         self.odoo_connected.wait()
         # Send 1-st message that will be omitted
-        self.odoo.env[self.agent_model].send_agent(
+        try:
+            self.odoo.env[self.agent_model].send_agent(
                                 self.agent_uid,
                                 json.dumps({
                                     'message': 'ping',
                                     'random_sleep': '0'}))
+        except Exception as e:
+            logger.exception('First ping error:')
         last = 0
         while True:
             try:
                 bus_url = '{}://{}:{}/longpolling/poll'.format(
                     self.odoo_scheme, self.odoo_host, self.odoo_polling_port)
                 channel = '{}/{}'.format(self.agent_channel, self.agent_uid)
-                logger.debug('Polling %s at %s',
-                             channel, bus_url)
                 # Select DB first
                 self.select_db()
                 # Now let try to poll
+                logger.debug('Polling %s at %s',
+                             channel, bus_url)
                 r = self.odoo_session.post(
                             bus_url,
                             timeout=self.odoo_bus_timeout,
@@ -347,7 +353,7 @@ class GeventAgent(object):
                     error = r.json().get('error')
                     if error:
                         logger.error(json.dumps(error, indent=2))
-                        gevent.sleep(self.odoo_reconnect_timeout)
+                        gevent.sleep(self.odoo_reconnect_seconds)
                         continue
                 if last == 0:
                     # Ommit queued data
@@ -395,7 +401,7 @@ class GeventAgent(object):
                 else:
                     logger.exception('Bus error:')
                 if not no_wait:
-                    gevent.sleep(self.odoo_reconnect_timeout)
+                    gevent.sleep(self.odoo_reconnect_seconds)
 
 
     def wsgi_application(self, env, start_response):

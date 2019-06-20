@@ -1,12 +1,12 @@
 # -*- encoding: utf-8 -*-
 {
     'name': 'Odoo remote agent',
-    'version': '1.0',
+    'version': '12.0.1.0',
     'author': 'Odooist',
     'maintainer': 'Odooist',
     'support': 'odooist@gmail.com',
     'license': 'LGPL-3',
-    'category': 'Hidden',
+    'category': 'Tools',
     'summary': 'Connect from Odoo to remote agents',
     'description': "",
     'website': 'http://github.com/litnimax/remote_agent',

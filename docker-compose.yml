@@ -48,7 +48,7 @@ services:
       - ODOO_LOGIN=test_agent
       - ODOO_PASSWORD=test
       - VERIFY_CERT=0 # Set to 1 if u use nginx with https and a public certificate.
-      - ODOO_RECONNECT_TIMEOUT=1 # Reconnect      
+      - ODOO_RECONNECT_SECONDS=1 # Reconnect      
     # Override in docker-compose.override.yml if you enabled agent's HTTPS communication channel.
     #ports:
     #  - 40000:40000
