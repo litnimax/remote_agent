@@ -492,7 +492,8 @@ class GeventAgent(object):
         return True
 
 
-    def notify_user(self, uid, message, title='Agent', warning=False):
+    def notify_user(self, uid, message, title='Agent', warning=False,
+                    sticky=False):
         self.odoo_connected.wait()
         if not uid:
             logger.debug(u'No uid, will not notify')
@@ -505,7 +506,8 @@ class GeventAgent(object):
         self.odoo.env[self.agent_model].bus_sendone(
                                      notify_type,
                                      {'message': message,
-                                      'title': title})
+                                      'title': title,
+                                      'sticky': sticky})
 
 
 if __name__ == '__main__':
