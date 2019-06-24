@@ -1,11 +1,11 @@
 # -*- encoding: utf-8 -*-
 {
     'name': 'Odoo remote agent',
-    'version': '9.0.1.0',
+    'version': '8.0.1.0',
     'author': 'Odooist',
     'maintainer': 'Odooist',
     'support': 'odooist@gmail.com',
-    'license': 'LGPL-3',
+    'license': 'AGPL-3',
     'category': 'Tools',
     'summary': 'Connect from Odoo to remote agents',
     'description': "",
