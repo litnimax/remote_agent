@@ -34,11 +34,6 @@ DEFAULT_PASSWORD_LENGTH = os.getenv('AGENT_DEFAULT_PASSWORD_LENGTH', '10')
 
 json_protocol = JSONRPCProtocol()
 
-
-class AgentOffline(Exception):
-    pass
-
-
 class BusTransport(ClientTransport):
     def __init__(self, agent, timeout=None, fail_silent=False):
         self.timeout = timeout
@@ -47,18 +42,32 @@ class BusTransport(ClientTransport):
 
     def send_message(self, message, expect_reply=True):
         data = {'message': 'rpc', 'data': message.decode()}
-        if expect_reply:
-            result = self.agent.call(data, timeout=self.timeout)
-            if result:
-                return result['rpc_result'].encode()
-            if self.fail_silent:
-                res = {'jsonrpc': '2.0',
-                       'id': json.loads(message.decode())['id'],
-                       'result': False}
-                return json.dumps(res)
-            raise AgentOffline()
+        # BUG: https://github.com/mbr/tinyrpc/issues/78
+        # expect_reply is not used now.
+        return self.agent.send(data)
+        """
+        if not expect_reply:
+            result = self.agent.send(data, timeout=self.timeout,
+                                     silent=self.fail_silent)
         else:
-            result = self.agent.send(data, timeout=self.timeout)
+            raise ValidationError('HTTPS 2-way not implemented yet')
+            result = self.agent.call(data, timeout=self.timeout,
+                                     silent=self.fail_silent)
+            if result:
+                # Agent RPC result is this key
+                return result['rpc_result'].encode()
+            elif self.fail_silent:
+                return json.dumps({
+                    'jsonrpc': '2.0',
+                    'id': json.loads(message.decode())['id'],
+                    'result': False
+                })
+            else:
+                return json.dumps({
+                        'jsonrpc': '2.0',
+                        'id': json.loads(message.decode())['id'],
+                        'error': {"code": -32000, "message": "Agent offline"}})
+        """
 
 
 class AgentProxy(object):
@@ -90,6 +99,7 @@ class Agent(models.Model):
     https_address = fields.Char(string=_('HTTPS Address'))
     https_port = fields.Char(string=_('HTTPS Port'))
     https_timeout = fields.Integer(string=_('HTTPS Timeout'), default=10)
+    https_verify = fields.Boolean(help=_("Verify agent's certificate"))
     user = fields.Many2one('res.users', ondelete='restrict', readonly=True)
     login = fields.Char(related='user.login', string=_('Login'),
                         required=True, readonly=False)
@@ -189,15 +199,10 @@ class Agent(models.Model):
     @api.multi
     def send(self, message):
         self.ensure_one()
-        return self.send_agent(self.agent_uid, message)
-
-
-    @api.model
-    def send_agent(self, agent_uid, message):
+        agent = self
         # Unpack if required
         if type(message) != dict:
             message = json.loads(message)
-        agent = self._get_agent_by_uid(agent_uid)
         if agent.https_enabled:
             # Use Agent HTTPS interface to communicate
             res = None
@@ -208,7 +213,7 @@ class Agent(models.Model):
                                                    agent.https_port),
                             json=message,
                             timeout=agent.https_timeout or 5,
-                            verify=False)
+                            verify=agent.https_verify)
                 # Test for reply
                 res.json()
             except Exception as e:
@@ -223,15 +228,49 @@ class Agent(models.Model):
         return True
 
 
+    @api.model
+    def send_agent(self, agent_uid, message):
+        agent = self._get_agent_by_uid(agent_uid)
+        return agent.send(message)
+
+
     @api.multi
     def call(self, message, timeout=None, silent=False):
         self.ensure_one()
-        return self.call_agent(self.agent_uid, message, timeout, silent)
+        if self.bus_enabled:
+            return self.call_bus(message, timeout=timeout, silent=silent)
+        elif self.https_enabled:
+            return self.call_https(message, timeout=timeout, silent=silent)
+        else:
+            raise ValidationError(
+                            _('No communication channel defined for agent!'))
 
 
-    @api.model
-    def call_agent(self, agent_uid, message, timeout=None, silent=False):
-        agent = self._get_agent_by_uid(agent_uid)
+    @api.multi
+    def call_https(self, message, timeout=None, silent=False):
+        self.ensure_one()
+        url = 'https://{}:{}'.format(self.https_address, self.https_port)
+        message['token'] = self.sudo().token
+        try:
+            r = requests.post(url, timeout=self.https_timeout, json=message,
+                              verify=self.https_verify)
+            r.raise_for_status()
+            self.sudo().update_state(
+                                self.agent_uid, state='online', safe=True,
+                                note='{} reply'.format(message['message']))
+            return {'rpc_result': 'connected'}
+        except Exception as e:
+            self.sudo().update_state(
+                            self.agent_uid, state='offline', safe=True,
+                            note='{} not replied: {}'.format(
+                                            message['message'], str(e)))
+            return {}
+
+
+    @api.multi
+    def call_bus(self, message, timeout=None, silent=False):
+        self.ensure_one()
+        agent = self
         if not timeout:
             timeout = agent.bus_timeout
         channel = 'remote_agent/{}'.format(self.agent_uid)
@@ -291,6 +330,12 @@ class Agent(models.Model):
 
 
     @api.model
+    def call_agent(self, agent_uid, message, timeout=None, silent=False):
+        agent = self._get_agent_by_uid(agent_uid)
+        return agent.call(message, timeout=timeout, silent=silent)
+
+
+    @api.model
     def execute_agent(self, agent_uid, method, *args, **kwargs):
         agent = self._get_agent_by_uid(agent_uid)
         return agent.execute(method, *args, **kwargs)
@@ -298,7 +343,7 @@ class Agent(models.Model):
     @api.multi
     def execute(self, method, *args, **kwargs):
         self.ensure_one()
-        agent = AgentProxy(self).get_proxy(
+        agent = AgentProxy(self).get_proxy(one_way=True,
                                 fail_silent=kwargs.pop('fail_silent', None),
                                 timeout=kwargs.pop('timeout', None))
         return getattr(agent, method)(*args, **kwargs)

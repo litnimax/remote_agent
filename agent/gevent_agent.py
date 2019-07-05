@@ -82,6 +82,9 @@ class GeventAgent(object):
     https_cert_file = os.getenv(
         'AGENT_CERT_FILE',
         os.path.join(os.path.dirname(os.path.realpath(__file__)), 'agent.crt'))
+    # Agent can overwite its settings on start
+    update_settings_on_start = bool(int(os.getenv(
+                                            'UPDATE_SETTINGS_ON_START', '0')))
     # Secure token known only to Odoo
     token = None
     # Builtin HTTPS server to accept messages
@@ -238,16 +241,19 @@ class GeventAgent(object):
         # Set Agent HTTP communication options
         settings = {
             'token': self.token,
-            'bus_enabled': self.bus_enabled,
-            'https_enabled': self.https_enabled,
-            'https_address': self.https_address,
-            'https_port': self.https_port,
             'agent_version': self.version,
         }
-        if self.bus_call_timeout != -1:
-            settings.update({'bus_timeout': self.bus_call_timeout})
-        if self.https_timeout != -1:
-            settings.update({'https_timeout': self.https_timeout})
+        if self.update_settings_on_start:
+            if self.bus_call_timeout != -1:
+                settings.update({'bus_timeout': self.bus_call_timeout})
+            if self.https_timeout != -1:
+                settings.update({'https_timeout': self.https_timeout})
+            settings.update({
+                'bus_enabled': self.bus_enabled,
+                'https_enabled': self.https_enabled,
+                'https_address': self.https_address,
+                'https_port': self.https_port,
+            })
         self.odoo.env[
             self.agent_model].update_settings(self.agent_uid, settings)
 
