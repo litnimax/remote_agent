@@ -14,7 +14,7 @@ This solution also gives the ability to call remote client from Odoo  using 2 wa
 * JSON-RPC over Odoo bus (PUB/SUB via long polling).
 * JSON-RPC via HTTPS.
 
-.. image:: https://raw.githubusercontent.com/litnimax/remote_agent/master/static/description/img/concept.png
+.. image:: https://raw.githubusercontent.com/litnimax/remote_agent/12.0/static/description/img/concept.png
 
 Features
 ########
@@ -109,5 +109,17 @@ See docker-compose.yml in the package folder.
 
 To customize your installation use ``docker-compose.override.yml`` to set your custom values.
 
+Changelog
+---------
+1.1
+###
+* RPC over HTTPS implemented.
+* Added option to odoo Agent model to verify agent's HTTPS certificate (in case
+  you want to use your own certificates instead of suplied self-signed.).
+* Agent now can overwrite it's settings on Odoo if 
+
+1.0
+###
+Initial release.
 
 

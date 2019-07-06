@@ -37,8 +37,8 @@ class AgentCallbackServerTransport(CallbackServerTransport):
 
 
 class GeventAgent(object):
-    version = '1.0-gevent'
-    message_handlres = {}  # External message handlers are register here
+    version = '1.1-gevent'
+    message_handlers = {}  # External message handlers are register here
     odoo = None
     odoo_connected = Event()
     odoo_disconnected = Event()
@@ -82,12 +82,18 @@ class GeventAgent(object):
     https_cert_file = os.getenv(
         'AGENT_CERT_FILE',
         os.path.join(os.path.dirname(os.path.realpath(__file__)), 'agent.crt'))
+    # Agent can overwite its settings on start
+    update_settings_on_start = bool(int(os.getenv(
+                                            'UPDATE_SETTINGS_ON_START', '0')))
     # Secure token known only to Odoo
     token = None
     # Builtin HTTPS server to accept messages
     wsgi_server = None
-    rpc_server = None
-    rpc_requests = Queue()
+    https_rpc_server = None
+    https_rpc_requests = Queue()
+    https_rpc_replies = Queue()
+    bus_rpc_server = None
+    bus_rpc_requests = Queue()
     trace_rpc = bool(int(os.getenv('TRACE_RPC', '0')))
 
     def __init__(self, agent_model=None, agent_channel=None):
@@ -126,20 +132,28 @@ class GeventAgent(object):
             logging.getLogger("urllib3").setLevel(logging.ERROR)
             # Init RPC
         rpc_dispatcher.register_instance(self)
-        self.rpc_server = RPCServerGreenlets(
+        self.bus_rpc_server = RPCServerGreenlets(
                     AgentCallbackServerTransport(
-                        self.receive_rpc_message, self.send_rpc_reply),
+                        self.receive_bus_rpc_message, self.send_bus_rpc_reply),
+                    rpc_protocol,
+                    rpc_dispatcher)
+        self.https_rpc_server = RPCServerGreenlets(
+                    AgentCallbackServerTransport(
+                        self.receive_https_rpc_message,
+                        self.send_https_rpc_reply),
                     rpc_protocol,
                     rpc_dispatcher)
         if self.trace_rpc:
-            self.rpc_server.trace = self.trace_rpc_message
+            self.bus_rpc_server.trace = self.trace_rpc_message
+            self.https_rpc_server.trace = self.trace_rpc_message
 
 
     def spawn(self):
         hlist = []
         hlist.append(gevent.spawn(self.connect))
         hlist.append(gevent.spawn(self.odoo_bus_poll))
-        hlist.append(gevent.spawn(self.rpc_server.serve_forever))
+        hlist.append(gevent.spawn(self.bus_rpc_server.serve_forever))
+        hlist.append(gevent.spawn(self.https_rpc_server.serve_forever))
         gevent.spawn(self.on_start)
         if self.https_enabled:
             logger.info('Starting Agent WEB server at port %s', self.https_port)
@@ -168,7 +182,7 @@ class GeventAgent(object):
         if args.notify_uid:
             self.odoo_connected.wait()
             self.notify_user(args.notify_uid, 'Agent has been started!')
-        if args.alarm != None:
+        if args.alarm is not None:
             if args.alarm:
                 self.set_alarm(args.alarm)
             else:
@@ -182,12 +196,12 @@ class GeventAgent(object):
 
 
     def register_message(self, message, method):
-        if not self.message_handlres.get('message'):
+        if not self.message_handlers.get('message'):
             logger.debug('Registering message handler for %s', message)
-            self.message_handlres[message] = method
+            self.message_handlers[message] = method
         else:
             logger.warning('Overriding message handler for %s', message)
-            self.message_handlres[message] = method
+            self.message_handlers[message] = method
 
 
     def connect(self):
@@ -238,16 +252,19 @@ class GeventAgent(object):
         # Set Agent HTTP communication options
         settings = {
             'token': self.token,
-            'bus_enabled': self.bus_enabled,
-            'https_enabled': self.https_enabled,
-            'https_address': self.https_address,
-            'https_port': self.https_port,
             'agent_version': self.version,
         }
-        if self.bus_call_timeout != -1:
-            settings.update({'bus_timeout': self.bus_call_timeout})
-        if self.https_timeout != -1:
-            settings.update({'https_timeout': self.https_timeout})
+        if self.update_settings_on_start:
+            if self.bus_call_timeout != -1:
+                settings.update({'bus_timeout': self.bus_call_timeout})
+            if self.https_timeout != -1:
+                settings.update({'https_timeout': self.https_timeout})
+            settings.update({
+                'bus_enabled': self.bus_enabled,
+                'https_enabled': self.https_enabled,
+                'https_address': self.https_address,
+                'https_port': self.https_port,
+            })
         self.odoo.env[
             self.agent_model].update_settings(self.agent_uid, settings)
 
@@ -381,7 +398,7 @@ class GeventAgent(object):
                                      message)
                         continue
                     logger.debug('Handle bus message %s', message['message'])
-                    gevent.spawn(self.handle_message,
+                    gevent.spawn(self.handle_bus_message,
                                  msg['channel'], msg['message'])
 
             except Exception as e:
@@ -409,14 +426,27 @@ class GeventAgent(object):
                 and env.get('CONTENT_TYPE') == 'application/json':
             try:
                 data = env['wsgi.input'].read()
+                request_id = env.get('HTTP_X_REQUEST_ID')
+                if not request_id:
+                    raise Exception('No HTTP_X_REQUEST_ID sent!')
+                token = env.get('HTTP_X_TOKEN')
+                if not token:
+                    raise Exception('No HTTP_X_TOKEN passed!')
+                elif token != self.token:
+                    raise Exception('Tokens mismatch!')
                 message = json.loads(data)
-                gevent.spawn(self.handle_message, 'https', message)
                 status = '200 OK'
                 headers = [('Content-Type', 'application/json')]
+                result = self.handle_https_message(message, request_id)
                 start_response(status, headers)
-                return json.dumps({'status': 'ok'})
-            except Exception:
-                logger.exception('Agent HTTP error')
+                if result:
+                    if type(result) == tuple and len(result) == 2:
+                        return json.dumps(result[1])
+                    elif type(result) == dict:
+                        return json.dumps(result)
+                return str(result)
+            except Exception as e:
+                logger.error('Agent HTTP error: %s', e)
                 start_response('500 Server Error',
                                [('Content-Type', 'text/html')])
                 return [b'<h1>Server error</h1>']
@@ -427,28 +457,57 @@ class GeventAgent(object):
 
 
     def handle_message(self, channel, msg):
-        if not type(msg) == dict:
-            msg = json.loads(msg)
-        # Check for bus token
-        if self.token != msg.pop('token', None):
-            logger.warning('Channel %s token mismatch, ignore message: %s',
-                           channel, msg)
-            return
         name = msg.pop('message')
         logger.debug(u'Message {}'.format(name))
         if hasattr(self, 'on_message_{}'.format(name)):
-            getattr(self, 'on_message_{}'.format(name))(channel, msg)
+            result = getattr(self, 'on_message_{}'.format(name))(channel, msg)
         # Get message handler from external classes
-        elif self.message_handlres.get(name):
+        elif self.message_handlers.get(name):
             logger.debug('Found message handler for %s', name)
-            self.message_handlres[name](channel, msg)
+            result = self.message_handlers[name](channel, msg)
         else:
             logger.error('Message handler not found for {}'.format(name))
+            result = {'error': 'Message handler not found for {}'.format(name)}
+        return result
 
 
-    def on_message_rpc(self, channel, msg):
-        logger.debug('RPC message received: %s', msg['data'])
-        self.rpc_requests.put((msg.get('reply_channel'), msg['data']))
+    def handle_bus_message(self, channel, msg):
+        if not type(msg) == dict:
+            msg = json.loads(msg)
+        if self.token != msg.pop('token', None):
+            logger.warning(
+                        'Channel %s token mismatch, ignore message: %s', msg)
+            return
+        # Check for RPC message
+        if msg['message'] == 'rpc':
+            logger.debug('RPC message received: %s', msg['data'])
+            self.bus_rpc_requests.put((msg.get('reply_channel'), msg['data']))
+        else:
+            result = self.handle_message(channel, msg)
+            if result and msg.get('reply_channel'):
+                self.odoo.env[self.agent_model].bus_sendone(
+                                            msg['reply_channel'], result)
+
+
+    def handle_https_message(self, msg, request_id):
+        # Sometimes HTTP server has more then one request at a time.
+        # In this case we should be carefull giving back the result.
+        def get_my_result():
+            result = self.https_rpc_replies.get()
+            if result[0] != request_id:
+                self.https_rpc_replies.put_nowait(result)
+                gevent.sleep(0.1)
+                return get_my_result()
+            else:
+                return result
+        if msg['message'] == 'rpc':
+            logger.debug('HTTPS RPC message received: %s', msg['data'])
+            rpc_data = json.dumps(msg['data']) if type(msg['data']) == dict \
+                                                            else msg['data']
+            self.https_rpc_requests.put((request_id, rpc_data))
+            return get_my_result()
+        else:
+            return self.handle_message('https', msg)
 
 
     def on_message_update_state(self, channel, msg):
@@ -461,31 +520,45 @@ class GeventAgent(object):
 
 
     def on_message_restart(self, channel, msg):
+        def restart():
+            self.stop()
+            args = sys.argv[:]
+            if msg.get('notify_uid'):
+                logger.debug('Will notify uid %s after restart', msg['notify_uid'])
+                args.append('--notify_uid={}'.format(msg['notify_uid']))
+            os.execv(sys.executable, ['python2.7'] + args)
+
         logger.info('Restarting')
-        if msg.get('reply_channel'):
-            self.odoo.env[self.agent_model].bus_sendone(msg['reply_channel'], {
-                                                   'status': 'restarting'})
-        self.stop()
-        args = sys.argv[:]
-        if msg.get('notify_uid'):
-            logger.debug('Will notify uid %s after restart', msg['notify_uid'])
-            args.append('--notify_uid={}'.format(msg['notify_uid']))
-        os.execv(sys.executable, ['python2.7'] + args)
+        gevent.spawn_later(1, restart)
+        return {'status': 'restarting'}
 
 
-    def receive_rpc_message(self):
+    def receive_bus_rpc_message(self):
         # Get next message from the requests queue
-        logger.debug('Waiting for next RPC message...')
-        reply_channel, r = self.rpc_requests.get()
-        logger.debug('RPC queue received: %s', r)
+        logger.debug('Waiting for next Bus RPC message...')
+        reply_channel, r = self.bus_rpc_requests.get()
+        logger.debug('Bus RPC queue received: %s', r)
         return reply_channel, bytes(r)
 
 
-    def send_rpc_reply(self, reply_channel, reply):
+    def send_bus_rpc_reply(self, reply_channel, reply):
         self.odoo_connected.wait()
-        logger.debug('RPC reply to %s: %s', reply_channel, reply)
+        logger.debug('Bus RPC reply to %s: %s', reply_channel, reply)
         self.odoo.env[
             self.agent_model].bus_sendone(reply_channel, {'rpc_result': reply})
+
+
+    def receive_https_rpc_message(self):
+        # Get next message from the requests queue
+        logger.debug('Waiting for next HTTPS RPC message...')
+        request_id, r = self.https_rpc_requests.get()
+        logger.debug('HTTPS RPC queue received: %s', r)
+        return request_id, bytes(r)
+
+
+    def send_https_rpc_reply(self, request_id, reply):
+        logger.debug('RPC reply %s', reply)
+        self.https_rpc_replies.put((request_id, {'rpc_result': reply}))
 
 
     def trace_rpc_message(self, direction, context, message):
