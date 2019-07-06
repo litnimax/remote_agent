@@ -96,7 +96,9 @@
                                        'required': [('https_enabled', '=', True)]}"/>
                         <field name='https_timeout'
                                attrs="{'invisible': [('https_enabled', '=', False)],
-                                       'required': [('https_enabled', '=', True)]}"/>                                        
+                                       'required': [('https_enabled', '=', True)]}"/>
+                        <field name='https_verify'
+                               attrs="{'invisible': [('https_enabled', '=', False)]}"/>
                       </group>
                       <group>
                         <label for="user" class="oe_read_only"/>
