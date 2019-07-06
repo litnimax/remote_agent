@@ -21,6 +21,8 @@ from odoo.addons.bus.models.bus import dispatch
 from tinyrpc import RPCClient
 from tinyrpc.protocols.jsonrpc import JSONRPCProtocol
 from tinyrpc.transports import ClientTransport
+from tinyrpc.exc import RPCError
+from tinyrpc.protocols import RPCErrorResponse
 
 from .agent_state import STATES
 
@@ -34,23 +36,41 @@ DEFAULT_PASSWORD_LENGTH = os.getenv('AGENT_DEFAULT_PASSWORD_LENGTH', '10')
 
 json_protocol = JSONRPCProtocol()
 
+
+class FixedRPCClient(RPCClient):
+    # Override, see https://github.com/mbr/tinyrpc/issues/78
+    def _send_and_handle_reply(
+                self, req, one_way, transport=None, no_exception=None):
+            tport = self.transport if transport is None else transport
+            # sends ...
+            reply = tport.send_message(req.serialize(), one_way)
+            if one_way:
+                # ... and be done
+                return
+            # ... or process the reply
+            response = self.protocol.parse_reply(reply)
+            if not no_exception and isinstance(response, RPCErrorResponse):
+                if hasattr(self.protocol, 'raise_error') and callable(
+                        self.protocol.raise_error):
+                    response = self.protocol.raise_error(response)
+                else:
+                    raise RPCError(
+                        'Error calling remote procedure: %s' % response.error
+                    )
+            return response
+
+
 class BusTransport(ClientTransport):
     def __init__(self, agent, timeout=None, fail_silent=False):
         self.timeout = timeout
         self.fail_silent = fail_silent
         self.agent = agent
 
-    def send_message(self, message, expect_reply=True):
+    def send_message(self, message, one_way=False):
         data = {'message': 'rpc', 'data': message.decode()}
-        # BUG: https://github.com/mbr/tinyrpc/issues/78
-        # expect_reply is not used now.
-        return self.agent.send(data)
-        """
-        if not expect_reply:
-            result = self.agent.send(data, timeout=self.timeout,
-                                     silent=self.fail_silent)
+        if one_way:
+            result = self.agent.send(data, silent=self.fail_silent)
         else:
-            raise ValidationError('HTTPS 2-way not implemented yet')
             result = self.agent.call(data, timeout=self.timeout,
                                      silent=self.fail_silent)
             if result:
@@ -67,7 +87,6 @@ class BusTransport(ClientTransport):
                         'jsonrpc': '2.0',
                         'id': json.loads(message.decode())['id'],
                         'error': {"code": -32000, "message": "Agent offline"}})
-        """
 
 
 class AgentProxy(object):
@@ -75,7 +94,7 @@ class AgentProxy(object):
         self.agent = agent
 
     def get_proxy(self, timeout=None, fail_silent=False, one_way=False):
-        rpc_client = RPCClient(
+        rpc_client = FixedRPCClient(
                         json_protocol,
                         BusTransport(self.agent, timeout=timeout,
                                      fail_silent=fail_silent))
@@ -99,7 +118,8 @@ class Agent(models.Model):
     https_address = fields.Char(string=_('HTTPS Address'))
     https_port = fields.Char(string=_('HTTPS Port'))
     https_timeout = fields.Integer(string=_('HTTPS Timeout'), default=10)
-    https_verify = fields.Boolean(help=_("Verify agent's certificate"))
+    https_verify = fields.Boolean(string=_('HTTPS Verify'),
+                                  help=_("Verify agent's certificate"))
     user = fields.Many2one('res.users', ondelete='restrict', readonly=True)
     login = fields.Char(related='user.login', string=_('Login'),
                         required=True, readonly=False)
@@ -197,7 +217,7 @@ class Agent(models.Model):
 
 
     @api.multi
-    def send(self, message):
+    def send(self, message, silent=False):
         self.ensure_one()
         agent = self
         # Unpack if required
@@ -205,27 +225,25 @@ class Agent(models.Model):
             message = json.loads(message)
         if agent.https_enabled:
             # Use Agent HTTPS interface to communicate
-            res = None
             try:
-                message['token'] = agent.sudo().token
-                res = requests.post(
+                r = requests.post(
                             'https://{}:{}'.format(agent.https_address,
                                                    agent.https_port),
                             json=message,
+                            headers={'X-Request-Id': uuid.uuid4().hex,
+                                     'X-Token': agent.sudo().token},
                             timeout=agent.https_timeout or 5,
                             verify=agent.https_verify)
-                # Test for reply
-                res.json()
-            except Exception as e:
-                logger.exception('Agent HTTPS connect error:')
-                raise ValidationError('Agent HTTPS {}: {}'.format(
-                                                    res and res.text, e))
+                # Test for good response.
+                r.raise_for_status()
+            except Exception:
+                if not silent:
+                    raise
         else:
             # Use Odoo bus for communication
             message['token'] = agent.sudo().token
             self.env['bus.bus'].sendone('remote_agent/{}'.format(
                                             agent.agent_uid), message)
-        return True
 
 
     @api.model
@@ -250,15 +268,16 @@ class Agent(models.Model):
     def call_https(self, message, timeout=None, silent=False):
         self.ensure_one()
         url = 'https://{}:{}'.format(self.https_address, self.https_port)
-        message['token'] = self.sudo().token
         try:
             r = requests.post(url, timeout=self.https_timeout, json=message,
+                              headers={'X-Request-Id': uuid.uuid4().hex,
+                                       'X-Token': self.sudo().token},
                               verify=self.https_verify)
             r.raise_for_status()
             self.sudo().update_state(
                                 self.agent_uid, state='online', safe=True,
                                 note='{} reply'.format(message['message']))
-            return {'rpc_result': 'connected'}
+            return r.json()
         except Exception as e:
             self.sudo().update_state(
                             self.agent_uid, state='offline', safe=True,
@@ -343,7 +362,7 @@ class Agent(models.Model):
     @api.multi
     def execute(self, method, *args, **kwargs):
         self.ensure_one()
-        agent = AgentProxy(self).get_proxy(one_way=True,
+        agent = AgentProxy(self).get_proxy(
                                 fail_silent=kwargs.pop('fail_silent', None),
                                 timeout=kwargs.pop('timeout', None))
         return getattr(agent, method)(*args, **kwargs)
