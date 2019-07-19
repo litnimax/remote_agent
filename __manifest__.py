@@ -1,7 +1,7 @@
 # -*- encoding: utf-8 -*-
 {
     'name': 'Odoo remote agent',
-    'version': '12.0.1.1',
+    'version': '12.0.1.2',
     'author': 'Odooist',
     'maintainer': 'Odooist',
     'support': 'odooist@gmail.com',

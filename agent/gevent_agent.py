@@ -37,7 +37,7 @@ class AgentCallbackServerTransport(CallbackServerTransport):
 
 
 class GeventAgent(object):
-    version = '1.1-gevent'
+    version = '1.2-gevent'
     message_handlers = {}  # External message handlers are register here
     odoo = None
     odoo_connected = Event()
