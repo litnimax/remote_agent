@@ -244,6 +244,7 @@ class Agent(models.Model):
             message['token'] = agent.sudo().token
             self.env['bus.bus'].sendone('remote_agent/{}'.format(
                                             agent.agent_uid), message)
+        return True
 
 
     @api.model

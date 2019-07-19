@@ -19,6 +19,7 @@
         'security/user.xml',
         'security/agent.xml',
         'security/admin.xml',
+        'views/resources.xml',
         'views/agent.xml',
         'views/agent_state.xml',
         'views/ir_cron.xml',
