@@ -20,7 +20,7 @@ odoo.define("remote_agent.notification", function (require) {
               if (res == true) {
                 self.call('bus_service', 'addChannel', channel);
                 self.call('bus_service', 'onNotification', self, self.on_agent_notification)
-                console.log('Listening on ', channel)                
+                // console.log('Listening on ', channel)                
               }
             })
         },
