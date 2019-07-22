@@ -1,7 +1,7 @@
 # -*- encoding: utf-8 -*-
 {
     'name': 'Odoo remote agent',
-    'version': '11.0.1.1',
+    'version': '11.0.1.2',
     'author': 'Odooist',
     'maintainer': 'Odooist',
     'support': 'odooist@gmail.com',
@@ -19,6 +19,7 @@
         'security/user.xml',
         'security/agent.xml',
         'security/admin.xml',
+        'views/resources.xml',
         'views/agent.xml',
         'views/agent_state.xml',
         'views/ir_cron.xml',

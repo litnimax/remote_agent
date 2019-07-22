@@ -37,7 +37,7 @@ class AgentCallbackServerTransport(CallbackServerTransport):
 
 
 class GeventAgent(object):
-    version = '1.1-gevent'
+    version = '1.2-gevent'
     message_handlers = {}  # External message handlers are register here
     odoo = None
     odoo_connected = Event()
@@ -571,22 +571,19 @@ class GeventAgent(object):
         return True
 
 
-    def notify_user(self, uid, message, title='Agent', warning=False,
-                    sticky=False):
+    def notify_user(self, uid, message, title='Agent',
+                    warning=False, sticky=False):
         self.odoo_connected.wait()
         if not uid:
             logger.debug(u'No uid, will not notify')
             return
         logger.debug('Notify user %s: %s', uid, message)
-        if not warning:
-            notify_type = 'notify_info_{}'.format(uid)
-        else:
-            notify_type = 'notify_warning_{}'.format(uid)
         self.odoo.env[self.agent_model].bus_sendone(
-                                     notify_type,
-                                     {'message': message,
-                                      'title': title,
-                                      'sticky': sticky})
+                                 'remote_agent_notification_{}'.format(uid), {
+                                    'message': message,
+                                    'warning': warning,
+                                    'sticky': sticky,
+                                    'title': title})
 
 
 if __name__ == '__main__':

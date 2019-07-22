@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+  <template id="remote_agent_assets_backend" name="remote_agent_assets_backend" inherit_id="web.assets_backend">
+    <xpath expr="." position="inside">
+      <script type="text/javascript" src="/remote_agent/static/src/js/notification.js"/>
+    </xpath>
+  </template>
+
+</odoo>

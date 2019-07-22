@@ -65,12 +65,6 @@ Install this in Odoo in the following way:
 
 And restart Odoo.
 
-web_notify
-++++++++++
-When this module is installed agents can send UI notifictions to users. 
-
-Install it from here - https://apps.odoo.com/apps/modules/12.0/web_notify/ and restart Odoo.
-
 Install agent
 #############
 Copy agent folder to your remote box to */srv/agent/* folder. Python2.7 is required. 
