@@ -248,9 +248,9 @@ class Agent(models.Model):
 
 
     @api.model
-    def send_agent(self, agent_uid, message):
+    def send_agent(self, agent_uid, message, silent=False):
         agent = self._get_agent_by_uid(agent_uid)
-        return agent.send(message)
+        return agent.send(message, silent=silent)
 
 
     @api.multi
