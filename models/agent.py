@@ -244,12 +244,13 @@ class Agent(models.Model):
             message['token'] = agent.sudo().token
             self.env['bus.bus'].sendone('remote_agent/{}'.format(
                                             agent.agent_uid), message)
+        return True
 
 
     @api.model
-    def send_agent(self, agent_uid, message):
+    def send_agent(self, agent_uid, message, silent=False):
         agent = self._get_agent_by_uid(agent_uid)
-        return agent.send(message)
+        return agent.send(message, silent=silent)
 
 
     @api.multi
@@ -311,7 +312,7 @@ class Agent(models.Model):
                                         last=0, timeout=timeout)
         else:
             # Cron instance
-            started = datetime.now()
+            started = datetime.utcnow()
             to_end = started + timedelta(seconds=timeout)
             agent_reply = None
             while datetime.now() < to_end:
@@ -320,7 +321,8 @@ class Agent(models.Model):
                         env = api.Environment(new_cr, self.env.uid,
                                               self.env.context)
                         rec = env['bus.bus'].sudo().search(
-                            [('create_date', '>=', started),
+                            [('create_date', '>=', started.strftime(
+                                                        '%Y-%m-%d %H:%M:%S')),
                              ('channel', '=', '"{}"'.format(reply_channel))])
                         if not rec:
                             time.sleep(0.25)

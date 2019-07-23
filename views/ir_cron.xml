@@ -20,5 +20,4 @@
         <field name="function">vacuum</field>
         <field name="args">(7,)</field>
     </record>
-
 </data></odoo>
