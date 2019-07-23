@@ -160,7 +160,8 @@ class Agent(models.Model):
                 agent_group.write([4, user.id])
         else:
             user = self.env['res.users'].sudo().create({
-                'name': vals.get('agent_uid'),
+                'name': vals.get('name') or vals.get('agent_uid'),
+                'email': vals.get('email'),
                 'login': vals.get('login'),
                 'groups_id': [(6, 0, [agent_group.id])],
                 'password': vals.get('password'),
