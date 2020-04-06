@@ -1,3 +1,3 @@
 # Remote Agent - Odoo communication framework
 
-Select your Odoo version branch.
+NEW HOME IS HERE - http://gitlab.com/odooist/remote_agent
